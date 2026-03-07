@@ -139,31 +139,54 @@ window.IndexedDBManager = class IndexedDBManager {
      */
     _openDatabase() {
         return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                console.warn('[GVP IndexedDB] ⏱️ Open request timed out after 5s. Falling back...');
+                reject(new Error('IndexedDB open timed out'));
+            }, 5000);
+
+            console.log(`[GVP IndexedDB] Opening database ${this.dbName} v${this.dbVersion}...`);
             const request = indexedDB.open(this.dbName, this.dbVersion);
 
+            request.onblocked = (event) => {
+                console.warn('[GVP IndexedDB] ⚠️ DATABASE UPGRADE BLOCKED! Close other Grok tabs.', event);
+                window.Logger?.warn('IndexedDB', 'Migration blocked by other tabs.');
+            };
+
             request.onerror = () => {
-                reject(new Error(`IndexedDB open failed: ${request.error}`));
+                clearTimeout(timeout);
+                console.error('[GVP IndexedDB] ❌ Open request error:', request.error);
+                reject(request.error || new Error('Unknown IDB error'));
             };
 
             request.onsuccess = () => {
-                resolve(request.result);
+                clearTimeout(timeout);
+                const db = request.result;
+                db.onversionchange = () => {
+                    console.log('[GVP IndexedDB] 🔄 Version change detected. Closing...');
+                    db.close();
+                    window.location.reload();
+                };
+                resolve(db);
             };
 
             request.onupgradeneeded = (event) => {
-                const oldVersion = event.oldVersion;
-                console.log(`[GVP IndexedDB] Upgrading database schema from v${oldVersion} to v${event.newVersion}...`);
+                console.log(`[GVP IndexedDB] 🛠️ Upgrading schema: v${event.oldVersion} -> v${event.newVersion}`);
                 const db = event.target.result;
                 const transaction = event.target.transaction;
 
-                // Sequential migration execution
-                for (let v = oldVersion + 1; v <= event.newVersion; v++) {
+                transaction.onerror = (err) => console.error('[GVP IndexedDB] ❌ Transaction error:', err);
+                transaction.oncomplete = () => console.log('[GVP IndexedDB] ✅ Migration transaction complete.');
+
+                for (let v = event.oldVersion + 1; v <= event.newVersion; v++) {
                     if (IndexedDBManager.MIGRATIONS[v]) {
                         console.log(`[GVP IndexedDB] 🚀 Applying migration v${v}...`);
-                        IndexedDBManager.MIGRATIONS[v](db, transaction, this.STORES);
+                        try {
+                            IndexedDBManager.MIGRATIONS[v](db, transaction, this.STORES);
+                        } catch (migError) {
+                            console.error(`[GVP IndexedDB] ❌ Migration v${v} failed:`, migError);
+                        }
                     }
                 }
-
-                console.log(`[GVP IndexedDB] ✅ Schema upgrade complete to v${event.newVersion}`);
             };
         });
     }
@@ -313,6 +336,10 @@ window.IndexedDBManager = class IndexedDBManager {
             }
         },
         19: (db, transaction, STORES) => {
+            if (!db.objectStoreNames.contains(STORES.UNIFIED_VIDEO_HISTORY)) {
+                console.warn('[GVP IndexedDB] ⚠️ Migration v19 skipped: UNIFIED_VIDEO_HISTORY store not found.');
+                return;
+            }
             const unifiedStore = transaction.objectStore(STORES.UNIFIED_VIDEO_HISTORY);
 
             // Add lowercase indexes for performant search
@@ -325,7 +352,8 @@ window.IndexedDBManager = class IndexedDBManager {
             if (!unifiedStore.indexNames.contains('imageId_lc')) {
                 unifiedStore.createIndex('imageId_lc', 'imageId_lc', { unique: false });
             }
-            console.log('[GVP IndexedDB] Created lowercase search indexes (v19)');
+            console.log('[GVP IndexedDB] ✅ Lowercase search indexes created (v19)');
+            console.info('[GVP] 💡 TIP: If IndexedDB continues to hang, try running `indexedDB.deleteDatabase("GrokVideoPrompter")` in the console and refreshing.');
         }
     };
 
