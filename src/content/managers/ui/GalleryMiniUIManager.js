@@ -109,12 +109,21 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
 
         // If the unified history was updated, we might need to refresh
         if (storeName === 'unifiedVideoHistory') {
-            // Check if the update affects our current root lineage
             const affectedId = data?.imageId || data?.id;
+            if (!affectedId) return;
 
-            // For simplicity, we refresh if any unifiedVideoHistory change happens, 
-            // but we could optimize to only refresh if affectedId belongs to our current lineage.
-            window.Logger.debug('GalleryMiniUIManager', `IDB sync (${type}) received for ${storeName}, refreshing rails…`);
+            // PERFORMANCE: Only refresh if affectedId is our current ID, OR shares our root lineage.
+            // This prevents background tabs doing unrelated generations from constantly refreshing this tab.
+            const idb = this.stateManager?.storageManager?.indexedDBManager;
+            const affectedRootId = idb?.initialized ? await idb.resolveRoot(affectedId) : null;
+            const isRelevant = affectedId === this.currentImageId || (affectedRootId && affectedRootId === this._currentAbsoluteRootId);
+
+            if (!isRelevant) {
+                window.Logger.debug('GalleryMiniUIManager', `Ignored sync update for ${affectedId} (not in current lineage)`);
+                return;
+            }
+
+            window.Logger.debug('GalleryMiniUIManager', `Targeted sync refresh (${type}) for ${affectedId}…`);
 
             try {
                 const refreshed = await this._resolveData(this.currentImageId);
@@ -181,10 +190,8 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
         console.log(`[GVP GalleryMiniUIManager] _resolveData — idb:`, idb ? `✅ initialized=${idb.initialized}` : '❌ NULL');
 
         // Step 1: Find the absolute root ID via IDB chain-chasing only.
-        // IDB is used ONLY for root-ID resolution — not as a source of image data —
-        // because IDB editedImages[] is populated per /list batch and may be
-        // incomplete (missing siblings loaded in other batches or generations).
         const absoluteRootId = await this._getAbsoluteRootId(imageId, idb);
+        this._currentAbsoluteRootId = absoluteRootId; // Cache for lineage-targeted sync checks
 
         // Step 2: Always call the API for the root post to get the FULL sibling set.
         // /post/get returns images[] including ALL edit generations (root + direct

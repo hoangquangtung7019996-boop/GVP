@@ -2735,34 +2735,43 @@ window.IndexedDBManager = class IndexedDBManager {
         const q = query.toLowerCase();
 
         try {
-            const results = [];
+            const resultsMap = new Map();
             const transaction = this.db.transaction([this.STORES.UNIFIED_VIDEO_HISTORY], 'readonly');
             const store = transaction.objectStore(this.STORES.UNIFIED_VIDEO_HISTORY);
 
-            // We use a cursor over the unified store. 
-            // For a truly performant Omnibox search, we scan and stop at 10 matches.
-            return await new Promise((resolve) => {
-                const request = store.openCursor();
-                request.onsuccess = (event) => {
-                    const cursor = event.target.result;
-                    if (!cursor || results.length >= 10) {
-                        resolve(results);
-                        return;
-                    }
+            // Targeted prefix lookups on lowercase indexes
+            const indexes = ['imageId_lc', 'customName_lc', 'prompt_lc'];
+            const range = IDBKeyRange.bound(q, q + '\ufff8');
 
-                    const entry = cursor.value;
-                    const matches =
-                        (entry.prompt_lc && entry.prompt_lc.includes(q)) ||
-                        (entry.customName_lc && entry.customName_lc.includes(q)) ||
-                        (entry.imageId_lc && entry.imageId_lc.includes(q));
+            for (const indexName of indexes) {
+                if (resultsMap.size >= 10) break;
+                if (!store.indexNames.contains(indexName)) continue;
 
-                    if (matches) {
-                        results.push(entry);
-                    }
-                    cursor.continue();
-                };
-                request.onerror = () => resolve([]);
-            });
+                const index = store.index(indexName);
+                const matches = await new Promise((resolve) => {
+                    const localMatches = [];
+                    const request = index.openCursor(range);
+                    request.onsuccess = (event) => {
+                        const cursor = event.target.result;
+                        if (!cursor || (resultsMap.size + localMatches.length) >= 10) {
+                            resolve(localMatches);
+                            return;
+                        }
+                        const entry = cursor.value;
+                        if (!resultsMap.has(entry.imageId)) {
+                            localMatches.push(entry);
+                        }
+                        cursor.continue();
+                    };
+                    request.onerror = () => resolve([]);
+                });
+
+                for (const match of matches) {
+                    resultsMap.set(match.imageId, match);
+                }
+            }
+
+            return Array.from(resultsMap.values());
         } catch (error) {
             console.error('[GVP IndexedDB] Search failed:', error);
             return [];
