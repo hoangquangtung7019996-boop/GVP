@@ -2741,7 +2741,7 @@ window.IndexedDBManager = class IndexedDBManager {
 
             // Targeted prefix lookups on lowercase indexes
             const indexes = ['imageId_lc', 'customName_lc', 'prompt_lc'];
-            const range = IDBKeyRange.bound(q, q + '\ufff8');
+            const range = IDBKeyRange.bound(q, q + '\uffff');
 
             for (const indexName of indexes) {
                 if (resultsMap.size >= 10) break;
