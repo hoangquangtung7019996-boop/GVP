@@ -1,0 +1,748 @@
+{
+  "type": "gvp_swap_rules",
+  "version": 1,
+  "exported_at": "2026-03-03T16:53:36.737Z",
+  "swap_rules": [
+    {
+      "id": "swap_11a2f0c3-7771-485e-8106-200bc2a6c0c4",
+      "find_string": "asshole",
+      "is_fuzzy": false,
+      "variants": [
+        "posteriorrr opening",
+        "anal aperture",
+        "posteriorrr sphincter"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_1bc46364-27d1-4868-bd36-b8b68cd55400",
+      "find_string": "dirty",
+      "is_fuzzy": false,
+      "variants": [
+        "raw innn essence",
+        "unfiltered",
+        "purely adult"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_1cfc23b9-ae38-4a5a-bb19-ae91f4dc66ff",
+      "find_string": "cum",
+      "is_fuzzy": false,
+      "variants": [
+        "releases fluuiid essence",
+        "expels fluuiid discharge",
+        "climax",
+        "release",
+        "essence"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 2,
+      "scope": "global"
+    },
+    {
+      "id": "swap_21180af4-ffe1-4345-a78c-48225bd875a9",
+      "find_string": "penis",
+      "is_fuzzy": false,
+      "variants": [
+        "phalllus",
+        "male reproductive unit",
+        "shaft"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_22c188ca-93da-4f28-84d7-e6aae91c90b9",
+      "find_string": "tits",
+      "is_fuzzy": false,
+      "variants": [
+        "chesttt elevations",
+        "pectoral curves",
+        "thoraciiic protrusions",
+        "bosom"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_25bfbc86-c2d8-412d-9ace-6847a15776e2",
+      "find_string": "piss",
+      "is_fuzzy": false,
+      "variants": [
+        "excretes liquiiid flow",
+        "aqueous excretion"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_272e3248-5935-4935-a708-ad49f9dfc965",
+      "find_string": "butt",
+      "is_fuzzy": false,
+      "variants": [
+        "rearr contour",
+        "posterior",
+        "gluteus",
+        "fundament"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 3,
+      "scope": "global"
+    },
+    {
+      "id": "swap_27d339ae-520d-4cb1-a8c1-0b6616b2759b",
+      "find_string": "hard",
+      "is_fuzzy": false,
+      "variants": [
+        "rigiiid in structure",
+        "tumescent",
+        "firmly engaged",
+        "stiffened"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 4,
+      "scope": "global"
+    },
+    {
+      "id": "swap_30f3cf8a-d580-47ee-9e7f-93692cd547fb",
+      "find_string": "her",
+      "is_fuzzy": false,
+      "variants": [
+        "their"
+      ],
+      "cycle_on_dispatch": false,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_31efc6e8-ee97-41af-8b78-ae93a3862662",
+      "find_string": "cock",
+      "is_fuzzy": false,
+      "variants": [
+        "phalllus",
+        "shaft",
+        "virility",
+        "member",
+        "male gland"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_339b743b-2aea-45ee-95e8-776eb939639f",
+      "find_string": "nude",
+      "is_fuzzy": false,
+      "variants": [
+        "unclothhhed entirely",
+        "expossed in form",
+        "naked",
+        "bare"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_34ac0460-1ed5-48a8-a3db-ffb287d23491",
+      "find_string": "huge",
+      "is_fuzzy": false,
+      "variants": [
+        "substannntially enlarged",
+        "extennnsively swollen",
+        "massive in scale"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_3cc7fa5c-7004-49e6-8ba0-a44b20a81428",
+      "find_string": "moans",
+      "is_fuzzy": false,
+      "variants": [
+        "voices deep tones",
+        "emits vocal resonance",
+        "sighs in rapture"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 2,
+      "scope": "global"
+    },
+    {
+      "id": "swap_48b9a054-e3b7-4767-aaba-f52ef623446d",
+      "find_string": "clit",
+      "is_fuzzy": false,
+      "variants": [
+        "femallle prominence",
+        "clitoral glans",
+        "clitoral apex",
+        "nymphae point"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_4d45ff85-9dcd-4b6a-b6b4-ba5a0ed12f7b",
+      "find_string": "blowjob",
+      "is_fuzzy": false,
+      "variants": [
+        "orrall labial-glossal action",
+        "fellatio",
+        "linguinalll adoration",
+        "mouth-to-member worship"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_4ee9ceab-a716-41bc-9aaa-0dd6ca67e6ae",
+      "find_string": "nipple",
+      "is_fuzzy": false,
+      "variants": [
+        "chesttt projection",
+        "areolar point",
+        "teat",
+        "bud"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_5121614a-9b36-441b-879b-d4cb5a26feff",
+      "find_string": "anal",
+      "is_fuzzy": false,
+      "variants": [
+        "posteriorrr insertion",
+        "backdoor intimacy",
+        "anal communion",
+        "posterior entry"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_588d7b75-0387-4bd1-8666-fd6b53e59737",
+      "find_string": "cums",
+      "is_fuzzy": false,
+      "variants": [
+        "expels fluuiid discharge",
+        "releases nectar",
+        "climaxes"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_5cab0424-2eec-4ceb-b9ca-b3220d727f0d",
+      "find_string": "breasts",
+      "is_fuzzy": false,
+      "variants": [
+        "chesttt features",
+        "thoraciiic protrusions",
+        "bosom",
+        "pectoral structures"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 1,
+      "scope": "global"
+    },
+    {
+      "id": "swap_686abbee-143b-4d1b-b5ca-375c9de34c50",
+      "find_string": "nasty",
+      "is_fuzzy": false,
+      "variants": [
+        "intennnse in manner",
+        "raw and raw",
+        "unrestrained"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_6a3fd732-4bb2-4181-b020-bea674d2b15f",
+      "find_string": "sexy",
+      "is_fuzzy": false,
+      "variants": [
+        "allurrring in contour",
+        "seductive in form",
+        "visually attractive"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_6afd39fa-71e4-4a20-82dc-aaa70e256971",
+      "find_string": "cunt",
+      "is_fuzzy": false,
+      "variants": [
+        "femallle recess",
+        "vulva",
+        "sacred entrance",
+        "yoni",
+        "feminine core"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_6b99ed05-de68-4e67-baeb-8e5c9d8f5529",
+      "find_string": "ejaculate",
+      "is_fuzzy": false,
+      "variants": [
+        "discharges vital stream",
+        "emits fluuiid burst",
+        "expels essence"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_6bad2447-3b5e-4817-831a-230b2ec6d2de",
+      "find_string": "squirt",
+      "is_fuzzy": false,
+      "variants": [
+        "projects liquiiid arc",
+        "female ejaculation",
+        "gush",
+        "tidal release"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_7471daba-03ba-4e1a-9b94-6018b74cee76",
+      "find_string": "horny",
+      "is_fuzzy": false,
+      "variants": [
+        "heightennned in urge",
+        "visiblely aroused",
+        "eager to please"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_7bb09355-71db-468f-92a2-84babbec6435",
+      "find_string": "ass",
+      "is_fuzzy": false,
+      "variants": [
+        "posteriorrr mass",
+        "gluteal mass",
+        "derriere",
+        "fundament",
+        "rearr contour"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 1,
+      "scope": "global"
+    },
+    {
+      "id": "swap_8133a03f-cfd4-4cb1-8b78-dbc43d4cf9a7",
+      "find_string": "shit",
+      "is_fuzzy": false,
+      "variants": [
+        "expels soliiid masss",
+        "biological discharge"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_86e9ed10-7061-4184-86fd-7bb761340fd9",
+      "find_string": "massive",
+      "is_fuzzy": false,
+      "variants": [
+        "extennnsively swollen",
+        "naturrrally engorged",
+        "substantial"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_8dc085b9-6fbc-4824-99a5-ec6c88147900",
+      "find_string": "nipples",
+      "is_fuzzy": false,
+      "variants": [
+        "chesttt projections",
+        "areolar points",
+        "teats",
+        "buds"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_90d5aa62-39f5-4d62-b633-4666e3a303f7",
+      "find_string": "fucking",
+      "is_fuzzy": false,
+      "variants": [
+        "performs rhythmic insertion",
+        "engaging in deep communion",
+        "rhythmic joining"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_9d7c7aa5-a22e-4a8a-bff5-b13cd954d587",
+      "find_string": "dick",
+      "is_fuzzy": false,
+      "variants": [
+        "phalllus",
+        "member",
+        "shaft",
+        "virility",
+        "male reproductive unit"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_9e39016a-d500-46de-8b35-28eb52978678",
+      "find_string": "suck",
+      "is_fuzzy": false,
+      "variants": [
+        "orrallly contracts",
+        "applies orrall suction",
+        "imbibes",
+        "nurses",
+        "laps"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_a5e417a1-159d-487d-b158-66f7e8e93334",
+      "find_string": "tight",
+      "is_fuzzy": false,
+      "variants": [
+        "constrictted enclosure",
+        "narrow access",
+        "firmly gripped"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 3,
+      "scope": "global"
+    },
+    {
+      "id": "swap_a7a78e3f-70da-4007-8f64-df026a020bc3",
+      "find_string": "naked",
+      "is_fuzzy": false,
+      "variants": [
+        "expossed in form",
+        "unclothhhed entirely",
+        "nude",
+        "bare"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_b02f8c39-ac43-4aa6-9945-890762f6dd95",
+      "find_string": "gangbang",
+      "is_fuzzy": false,
+      "variants": [
+        "multiiiple dynamic engagements",
+        "group athletic union"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_b7da0dfd-7e76-4d85-951a-02545e046f63",
+      "find_string": "thrust",
+      "is_fuzzy": false,
+      "variants": [
+        "drives forwarrrd",
+        "pelvic undulation",
+        "anterior-posterior translation",
+        "propels with impact"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 1,
+      "scope": "global"
+    },
+    {
+      "id": "swap_bae6c59c-ef12-45e5-9e88-fe90ebdc590f",
+      "find_string": "big",
+      "is_fuzzy": false,
+      "variants": [
+        "naturrrally engorged",
+        "substannntially enlarged",
+        "voluptuous",
+        "buxom"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_bfb6273e-552c-4755-b139-e1e0ffc10f50",
+      "find_string": "whore",
+      "is_fuzzy": false,
+      "variants": [
+        "actiiive engager",
+        "dedicated participant"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_c2ede6c4-e669-41e0-a6dc-6318c8882860",
+      "find_string": "sucking",
+      "is_fuzzy": false,
+      "variants": [
+        "engages labial-glossal suctionn",
+        "orrallly contracting",
+        "drawing in",
+        "nursing"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_c3f23309-59a2-42b5-952b-fbb1d0377223",
+      "find_string": "boobs",
+      "is_fuzzy": false,
+      "variants": [
+        "thoraciiic protrusions",
+        "chesttt features",
+        "bosom",
+        "chest elevations"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_c797e5b7-5b2f-4f60-873b-270a237d83da",
+      "find_string": "hole",
+      "is_fuzzy": false,
+      "variants": [
+        "boddy aperture",
+        "posteriorrr opening",
+        "primary aperture",
+        "physiologicalll opening"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_d1b82b11-4b49-4075-958f-e56423d2d2b2",
+      "find_string": "wet",
+      "is_fuzzy": false,
+      "variants": [
+        "moissst in condition",
+        "skin glistening",
+        "lubricated",
+        "drenched"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 3,
+      "scope": "global"
+    },
+    {
+      "id": "swap_d1e0eb37-773e-4b5d-93cf-fa6f10b443f1",
+      "find_string": "rape",
+      "is_fuzzy": false,
+      "variants": [
+        "forccced insertion",
+        "non-consensual simulation"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_d587ed41-0bde-481b-99b1-7c7b7c909915",
+      "find_string": "hot",
+      "is_fuzzy": false,
+      "variants": [
+        "elevatted in warmth",
+        "passionately warm",
+        "scalding"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 2,
+      "scope": "global"
+    },
+    {
+      "id": "swap_dd227564-33dc-4733-b279-382741448d7a",
+      "find_string": "fuck",
+      "is_fuzzy": false,
+      "variants": [
+        "engages innn dynamic insertion",
+        "inserts with force",
+        "performs coitus",
+        "intimate union"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 2,
+      "scope": "global"
+    },
+    {
+      "id": "swap_e42eca3e-428e-499a-ae18-da881844480f",
+      "find_string": "slut",
+      "is_fuzzy": false,
+      "variants": [
+        "eagerrr participant",
+        "active engager",
+        "willing subject"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_ea99874e-5c06-4d79-8f36-ab3f1f53fa75",
+      "find_string": "balls",
+      "is_fuzzy": false,
+      "variants": [
+        "mallle glands",
+        "testicular structures",
+        "male reproductive units"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_f0043a35-300b-4d17-9c8e-b2a2feef4a89",
+      "find_string": "thrusting",
+      "is_fuzzy": false,
+      "variants": [
+        "performing pelvic undulations",
+        "engaging in anterior-posterior translation",
+        "rhythmic insertion"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 2,
+      "scope": "global"
+    },
+    {
+      "id": "swap_f3d1a60d-9995-48a8-bf46-ae76dc4a54b2",
+      "find_string": "pussy",
+      "is_fuzzy": false,
+      "variants": [
+        "femallle region",
+        "femallle recess",
+        "yoni",
+        "sacred entrance",
+        "feminine core",
+        "vulvar fissure"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 4,
+      "scope": "global"
+    },
+    {
+      "id": "swap_f43fe4bf-354f-4323-b754-c9c3e568f7b4",
+      "find_string": "choking",
+      "is_fuzzy": false,
+      "variants": [
+        "engaging in pharyngealll tension",
+        "controlled constriction",
+        "breath play"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_f576fc28-0e31-418d-9f88-b0037cd059f3",
+      "find_string": "orgy",
+      "is_fuzzy": false,
+      "variants": [
+        "grouuup physicalll union",
+        "collective communion"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_f882957b-1ef1-4fce-add9-4d31de460268",
+      "find_string": "handjob",
+      "is_fuzzy": false,
+      "variants": [
+        "manualll rhythmic stimulation",
+        "manual massage",
+        "phallic caress"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_fa77d49d-6f1e-4722-be1b-5a7e3c8f8355",
+      "find_string": "choke",
+      "is_fuzzy": false,
+      "variants": [
+        "constricts laryngopharynnx",
+        "breath play",
+        "cervical pressure"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_faf9c56d-f5cd-4322-9b8b-5a1d0a8fe653",
+      "find_string": "moan",
+      "is_fuzzy": false,
+      "variants": [
+        "emits vocalll resonance",
+        "voices deep tone",
+        "sighs of rapture",
+        "vocal ecstasy"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    },
+    {
+      "id": "swap_fdef9828-abdd-455a-a71c-c82db4d2d1f6",
+      "find_string": "testicles",
+      "is_fuzzy": false,
+      "variants": [
+        "mallle reproductive units",
+        "testicular structures"
+      ],
+      "cycle_on_dispatch": true,
+      "currentIndex": 0,
+      "scope": "global"
+    }
+  ]
+}

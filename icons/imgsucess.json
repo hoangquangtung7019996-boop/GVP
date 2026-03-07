@@ -1,0 +1,201 @@
+{
+    "result": {
+        "conversation": {
+            "conversationId": "e42361db-56e1-48f1-b8a1-90f2408a8fd1",
+            "title": "New conversation",
+            "starred": false,
+            "createTime": "2026-03-03T16:52:11.145856Z",
+            "modifyTime": "2026-03-03T16:52:11.146456Z",
+            "systemPromptName": "",
+            "temporary": true,
+            "mediaTypes": [],
+            "workspaces": [],
+            "taskResult": null
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "userResponse": {
+                "responseId": "abd135b8-bb45-4a56-9e39-04b97e977626",
+                "message": "both females are petite flatchested nerds teenages depicted by 18 year old femalesw flushed wearing soaked panties and a firmly gripped padded bra --mode=custom",
+                "sender": "human",
+                "createTime": "2026-03-03T16:52:11.229Z",
+                "manual": false,
+                "partial": false,
+                "shared": false,
+                "query": "",
+                "queryType": "",
+                "webSearchResults": [],
+                "xpostIds": [],
+                "xposts": [],
+                "generatedImageUrls": [],
+                "imageAttachments": [],
+                "fileAttachments": [
+                    "0040adc0-acd9-4eeb-b7c0-d6fc349cca8b"
+                ],
+                "cardAttachmentsJson": [],
+                "fileUris": [],
+                "fileAttachmentsMetadata": [],
+                "isControl": false,
+                "steps": [],
+                "imageEditUris": [],
+                "mediaTypes": [],
+                "webpageUrls": [],
+                "metadata": {
+                    "modelConfigOverride": {
+                        "modelMap": {
+                            "imageEditModel": "imagine",
+                            "imageEditModelConfig": {
+                                "imageReferences": [
+                                    "https://imagine-public.x.ai/imagine-public/images/2033af22-61c5-43a0-9e1d-e7f963499992.jpg"
+                                ],
+                                "isRootCelebrity": false,
+                                "isRootChild": false,
+                                "isRootRRated": false,
+                                "isRootUserUploaded": false,
+                                "parentPostId": "2033af22-61c5-43a0-9e1d-e7f963499992",
+                                "resolvedImageReferences": [
+                                    "https://imagine-public.x.ai/imagine-public/images/2033af22-61c5-43a0-9e1d-e7f963499992.jpg"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "citedWebSearchResults": [],
+                "toolResponses": [],
+                "model": "imagine-image-edit",
+                "ragResults": [],
+                "citedRagResults": [],
+                "searchProductResults": [],
+                "connectorSearchResults": [],
+                "collectionSearchResults": [],
+                "highlightsStories": [],
+                "streamErrors": []
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "abd135b8-bb45-4a56-9e39-04b97e977626"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "progressReport": {
+                "category": "PROGRESS_REPORT_CATEGORY_ATTACHMENTS_PREPROCESSING",
+                "state": "PROGRESS_REPORT_STATUS_PENDING",
+                "message": "Started pre-processing attachments"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "d58214f3-c9fc-49f4-8833-d18791089d19"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "progressReport": {
+                "category": "PROGRESS_REPORT_CATEGORY_ATTACHMENTS_PREPROCESSING",
+                "state": "PROGRESS_REPORT_STATUS_PENDING",
+                "message": "Processing attachments 0:00:00.000017s elapsed"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "d58214f3-c9fc-49f4-8833-d18791089d19"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "progressReport": {
+                "category": "PROGRESS_REPORT_CATEGORY_ATTACHMENTS_PREPROCESSING",
+                "state": "PROGRESS_REPORT_STATUS_SUCCESS",
+                "message": "Finished pre-processing attachments"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "d58214f3-c9fc-49f4-8833-d18791089d19"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "queryAction": {
+                "query": "",
+                "type": "imagine"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "d58214f3-c9fc-49f4-8833-d18791089d19"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "imageAttachmentInfo": {
+                "imageAttachmentCount": 2
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "d58214f3-c9fc-49f4-8833-d18791089d19"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "imageDimensions": {
+                "width": 960,
+                "height": 960
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "d58214f3-c9fc-49f4-8833-d18791089d19"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "queryAction": {
+                "query": "",
+                "type": "imagine"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "d58214f3-c9fc-49f4-8833-d18791089d19"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "streamingImageGenerationResponse": {
+                "imageId": "3fde5d67-d028-4d63-b7e5-64168179c057",
+                "imageUrl": "users/525f7587-4bbb-4ee0-9939-eacb67298a51/generated/3fde5d67-d028-4d63-b7e5-64168179c057-part-0/image.jpg",
+                "seq": 0,
+                "progress": 50,
+                "moderated": false,
+                "imageIndex": 0,
+                "imageModel": "overriden"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "d58214f3-c9fc-49f4-8833-d18791089d19"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "streamingImageGenerationResponse": {
+                "imageId": "a8f8069a-9355-4e95-863f-1484572a8d4f",
+                "imageUrl": "users/525f7587-4bbb-4ee0-9939-eacb67298a51/generated/a8f8069a-9355-4e95-863f-1484572a8d4f-part-0/image.jpg",
+                "seq": 0,
+                "progress": 50,
+                "moderated": false,
+                "imageIndex": 1,
+                "imageModel": "overriden"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "d58214f3-c9fc-49f4-8833-d18791089d19"
+        }
+    }
+}

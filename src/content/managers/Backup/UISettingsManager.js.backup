@@ -1,0 +1,477 @@
+// UISettingsManager.js - Settings and configuration UI
+// Dependencies: StateManager
+
+window.UISettingsManager = class UISettingsManager {
+    constructor(stateManager, shadowRoot, uiManager, networkInterceptor, imageProjectManager) {
+        this.stateManager = stateManager;
+        this.shadowRoot = shadowRoot;
+        this.uiManager = uiManager;
+        this.networkInterceptor = networkInterceptor;
+        this.imageProjectManager = imageProjectManager;
+        this._panelElement = null;
+    }
+
+    openSettingsPanel() {
+        if (!this.shadowRoot) {
+            console.warn('[GVP] Settings panel cannot open: missing shadowRoot');
+            return;
+        }
+
+        if (!this._panelElement) {
+            this._panelElement = this._createSettingsPanel();
+            this.shadowRoot.appendChild(this._panelElement);
+        }
+
+        requestAnimationFrame(() => {
+            this._panelElement?.classList.add('visible');
+        });
+    }
+
+    closeSettingsPanel() {
+        if (this._panelElement) {
+            this._panelElement.classList.remove('visible');
+        }
+    }
+
+    _createSettingsPanel() {
+        const panel = document.createElement('div');
+        panel.id = 'gvp-settings-panel';
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-modal', 'true');
+
+        const container = document.createElement('div');
+        container.className = 'gvp-settings-panel-container';
+
+        const header = document.createElement('div');
+        header.className = 'gvp-settings-panel-header';
+
+        const title = document.createElement('span');
+        title.textContent = 'Settings';
+        header.appendChild(title);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'gvp-button gvp-settings-close-btn';
+        closeBtn.innerHTML = '×';
+        closeBtn.setAttribute('aria-label', 'Close settings');
+        closeBtn.addEventListener('click', () => this.closeSettingsPanel());
+        header.appendChild(closeBtn);
+
+        const body = document.createElement('div');
+        body.className = 'gvp-settings-panel-body';
+        body.appendChild(this._buildSettingsContent());
+
+        container.appendChild(header);
+        container.appendChild(body);
+        panel.appendChild(container);
+
+        panel.addEventListener('click', (event) => {
+            if (event.target === panel) {
+                this.closeSettingsPanel();
+            }
+        });
+
+        this.shadowRoot.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                this.closeSettingsPanel();
+            }
+        });
+
+        return panel;
+    }
+
+    _buildSettingsContent() {
+        const content = document.createElement('div');
+        content.className = 'gvp-settings-content';
+
+        const header = document.createElement('h3');
+        header.className = 'gvp-label';
+        header.textContent = 'General Settings';
+        header.style.marginTop = '0';
+        content.appendChild(header);
+
+        this.createCheckboxSetting(content, 'gvp-wrap-quotes-checkbox', 'Wrap prompt in quotes',
+                                   this.stateManager.getState().settings.wrapInQuotes, (checked) => {
+            if (typeof this.stateManager.setWrapInQuotes === 'function') {
+                this.stateManager.setWrapInQuotes(checked);
+            } else {
+                const state = this.stateManager.getState();
+                state.settings.wrapInQuotes = checked;
+                state.ui.wrapInQuotes = checked;
+                this.stateManager.saveSettings();
+            }
+        });
+
+        this.createCheckboxSetting(content, 'gvp-silent-mode-checkbox', 'Voice-only audio (mute music & ambient)',
+                                   this.stateManager.getState().settings.silentMode, (checked) => {
+            this._handleSilentModeToggle(checked);
+        });
+
+        const dialogueHeader = document.createElement('h3');
+        dialogueHeader.className = 'gvp-label';
+        dialogueHeader.textContent = 'Dialogue Presets';
+        dialogueHeader.style.marginTop = '16px';
+        dialogueHeader.style.borderTop = '1px solid #333';
+        dialogueHeader.style.paddingTop = '12px';
+        content.appendChild(dialogueHeader);
+
+        const dialogueDesc = document.createElement('p');
+        dialogueDesc.style.color = '#888';
+        dialogueDesc.style.fontSize = '11px';
+        dialogueDesc.style.margin = '8px 0 12px';
+        dialogueDesc.textContent = 'Clear saved accent, language, emotion, and type values to restore the default presets.';
+        content.appendChild(dialogueDesc);
+
+        const resetDialogueBtn = document.createElement('button');
+        resetDialogueBtn.className = 'gvp-button';
+        resetDialogueBtn.textContent = '♻️ Reset dialogue dropdowns';
+        resetDialogueBtn.addEventListener('click', async () => {
+            const confirmed = window.confirm('Reset saved dialogue dropdown values and restore defaults?');
+            if (!confirmed) {
+                return;
+            }
+
+            const originalText = resetDialogueBtn.textContent;
+            resetDialogueBtn.disabled = true;
+            resetDialogueBtn.textContent = 'Resetting…';
+
+            try {
+                if (window.ArrayFieldManager?.resetDialoguePresetDefaults) {
+                    window.ArrayFieldManager.resetDialoguePresetDefaults();
+                }
+
+                await this.stateManager.clearCustomDropdownValues([
+                    'dialogue.accent',
+                    'dialogue.language',
+                    'dialogue.emotion',
+                    'dialogue.type'
+                ]);
+
+                if (this.uiManager?.uiFormManager?.refreshCurrentView) {
+                    this.uiManager.uiFormManager.refreshCurrentView();
+                }
+
+                alert('Dialogue dropdowns restored to default presets.');
+            } catch (error) {
+                console.error('[GVP] Failed to reset dialogue dropdown presets:', error);
+                alert('Failed to reset dialogue dropdowns. Check console for details.');
+            } finally {
+                resetDialogueBtn.disabled = false;
+                resetDialogueBtn.textContent = originalText;
+            }
+        });
+        content.appendChild(resetDialogueBtn);
+
+        const auroraHeader = document.createElement('h3');
+        auroraHeader.className = 'gvp-label';
+        auroraHeader.textContent = '🎨 Aurora Auto-Injector';
+        auroraHeader.style.marginTop = '24px';
+        auroraHeader.style.borderTop = '1px solid #333';
+        auroraHeader.style.paddingTop = '16px';
+        content.appendChild(auroraHeader);
+
+        const auroraDesc = document.createElement('p');
+        auroraDesc.style.color = '#888';
+        auroraDesc.style.fontSize = '11px';
+        auroraDesc.style.marginBottom = '16px';
+        auroraDesc.textContent = 'Automatically enable Aurora mode by injecting blank PNG for image-to-video generation';
+        content.appendChild(auroraDesc);
+
+        this.createCheckboxSetting(content, 'gvp-aurora-enabled', 'Enable Aurora Auto-Injection',
+                                   this.stateManager.getState().settings.auroraEnabled, (checked) => {
+            if (typeof this.stateManager.setAuroraEnabled === 'function') {
+                this.stateManager.setAuroraEnabled(checked);
+            } else {
+                this.stateManager.getState().settings.auroraEnabled = checked;
+                this.stateManager.saveSettings();
+            }
+            console.log(`[GVP Aurora] Auto-injection ${checked ? 'enabled' : 'disabled'}`);
+        });
+
+        this.createAspectRatioSelector(content);
+
+        this.createCheckboxSetting(content, 'gvp-aurora-auto-detect', 'Auto-detect aspect ratio from prompt',
+                                   this.stateManager.getState().settings.auroraAutoDetectAspect, (checked) => {
+            this.stateManager.getState().settings.auroraAutoDetectAspect = checked;
+            this.stateManager.saveSettings();
+        });
+
+        this.createCheckboxSetting(content, 'gvp-aurora-force-edit', 'Automatically add "Edit this image to show:" prefix',
+                                   this.stateManager.getState().settings.auroraForceEditIntent, (checked) => {
+            this.stateManager.getState().settings.auroraForceEditIntent = checked;
+            this.stateManager.saveSettings();
+        });
+
+        this.createCheckboxSetting(content, 'gvp-aurora-force-chat', 'Enable Aurora injection for standard chat prompts',
+                                   this.stateManager.getState().settings.auroraForceEnableChat, (checked) => {
+            this.stateManager.getState().settings.auroraForceEnableChat = checked;
+            this.stateManager.saveSettings();
+            console.log('[GVP Aurora] Force chat injection ->', checked ? 'ON' : 'OFF');
+        });
+
+        this.createAuroraBlankPngConfig(content);
+
+        const clearCacheBtn = document.createElement('button');
+        clearCacheBtn.className = 'gvp-button';
+        clearCacheBtn.textContent = '🗑️ Clear Aurora Cache';
+        clearCacheBtn.style.marginTop = '12px';
+        clearCacheBtn.addEventListener('click', () => {
+            if (this.networkInterceptor && this.networkInterceptor.auroraManager) {
+                this.networkInterceptor.auroraManager.clearCache();
+                alert('Aurora file ID cache cleared');
+            }
+        });
+        content.appendChild(clearCacheBtn);
+
+        return content;
+    }
+
+    _createDebugTab() {
+        const tab = document.createElement('div');
+        tab.className = 'gvp-tab-content';
+        tab.id = 'gvp-debug';
+        tab.style.padding = '16px';
+        tab.style.fontFamily = 'Courier New, monospace';
+        tab.style.fontSize = '11px';
+
+        const sections = [
+            {
+                title: '🔧 Application State',
+                content: () => {
+                    const state = this.stateManager.getState();
+                    return `
+                        <div style="margin-bottom: 16px;">
+                            <strong>Version:</strong> v13.10<br>
+                            <strong>Debug Mode:</strong> ${state.debugMode ? 'Enabled' : 'Disabled'}<br>
+                            <strong>Active Tab:</strong> ${state.activeTab}<br>
+                            <strong>UI Open:</strong> ${state.isOpen}<br>
+                        </div>
+                    `;
+                }
+            },
+            {
+                title: '📊 Generation Stats',
+                content: () => {
+                    const state = this.stateManager.getState();
+                    const gen = state.generation;
+                    return `
+                        <div style="margin-bottom: 16px;">
+                            <strong>Status:</strong> ${gen.status}<br>
+                            <strong>Mode:</strong> ${gen.useSpicy ? 'Spicy' : 'Normal'}<br>
+                            <strong>Current Generation:</strong> ${gen.currentGenerationId || 'None'}<br>
+                            <strong>Retry Count:</strong> ${gen.retryCount}<br>
+                        </div>
+                    `;
+                }
+            }
+        ];
+
+        let content = '<div style="color: #fbbf24; font-weight: bold; margin-bottom: 16px;">🚀 Grok Video Prompter Debug Panel</div>';
+
+        sections.forEach(section => {
+            content += `
+                <div style="background: #0f172a; border: 1px solid #333; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+                    <div style="color: #fbbf24; font-weight: bold; margin-bottom: 8px;">${section.title}</div>
+                    <div style="color: #ddd;">${section.content()}</div>
+                </div>
+            `;
+        });
+
+        tab.innerHTML = content;
+        return tab;
+    }
+
+    createCheckboxSetting(container, id, labelText, checked, onChange) {
+        const checkboxContainer = document.createElement('div');
+        checkboxContainer.className = 'gvp-checkbox-container';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = id;
+        checkbox.checked = checked;
+        checkbox.addEventListener('change', (e) => onChange(e.target.checked));
+
+        const label = document.createElement('label');
+        label.htmlFor = id;
+        label.textContent = labelText;
+
+        checkboxContainer.appendChild(checkbox);
+        checkboxContainer.appendChild(label);
+        container.appendChild(checkboxContainer);
+    }
+
+    createAspectRatioSelector(container) {
+        const group = document.createElement('div');
+        group.className = 'gvp-form-group';
+        group.style.marginBottom = '16px';
+
+        const label = document.createElement('label');
+        label.className = 'gvp-label';
+        label.textContent = 'Default Aspect Ratio';
+        group.appendChild(label);
+
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.display = 'flex';
+        buttonContainer.style.gap = '8px';
+        buttonContainer.style.marginTop = '8px';
+
+        const aspects = ['portrait', 'landscape', 'square'];
+        const currentAspect = this.stateManager.getState().settings.auroraAspectRatio || 'square';
+
+        aspects.forEach(aspect => {
+            const btn = document.createElement('button');
+            btn.className = 'gvp-button';
+            btn.textContent = aspect.charAt(0).toUpperCase() + aspect.slice(1);
+            btn.style.flex = '1';
+
+            if (aspect === currentAspect) {
+                btn.style.backgroundColor = '#2196F3';
+                btn.style.color = 'white';
+                btn.style.borderColor = '#2196F3';
+            }
+
+            btn.addEventListener('click', () => {
+                buttonContainer.querySelectorAll('button').forEach(b => {
+                    b.style.backgroundColor = '#1f2937';
+                    b.style.color = '#ddd';
+                    b.style.borderColor = '#444';
+                });
+
+                btn.style.backgroundColor = '#2196F3';
+                btn.style.color = 'white';
+                btn.style.borderColor = '#2196F3';
+
+                this.stateManager.getState().settings.auroraAspectRatio = aspect;
+                this.stateManager.saveSettings();
+                console.log(`[GVP Aurora] Aspect ratio set to: ${aspect}`);
+            });
+
+            buttonContainer.appendChild(btn);
+        });
+
+        group.appendChild(buttonContainer);
+        container.appendChild(group);
+    }
+
+    createAuroraBlankPngConfig(container) {
+        const group = document.createElement('div');
+        group.className = 'gvp-form-group';
+        group.style.marginTop = '16px';
+        group.style.padding = '12px';
+        group.style.backgroundColor = '#0f172a';
+        group.style.borderRadius = '6px';
+        group.style.border = '1px solid #333';
+
+        const title = document.createElement('div');
+        title.className = 'gvp-label';
+        title.textContent = '🖼️ Blank PNG Configuration';
+        title.style.marginBottom = '12px';
+        group.appendChild(title);
+
+        const note = document.createElement('p');
+        note.style.color = '#888';
+        note.style.fontSize = '10px';
+        note.style.marginBottom = '12px';
+        note.textContent = 'Paste base64-encoded PNG data (without data:image/png;base64, prefix)';
+        group.appendChild(note);
+
+        const aspects = [
+            { key: 'auroraBlankPngPortrait', label: 'Portrait (9:16)' },
+            { key: 'auroraBlankPngLandscape', label: 'Landscape (16:9)' },
+            { key: 'auroraBlankPngSquare', label: 'Square (1:1)' }
+        ];
+
+        aspects.forEach(({ key, label }) => {
+            const fieldGroup = document.createElement('div');
+            fieldGroup.style.marginBottom = '12px';
+
+            const fieldLabel = document.createElement('label');
+            fieldLabel.className = 'gvp-label';
+            fieldLabel.textContent = label;
+            fieldLabel.style.fontSize = '11px';
+            fieldGroup.appendChild(fieldLabel);
+
+            const textarea = document.createElement('textarea');
+            textarea.className = 'gvp-textarea';
+            textarea.placeholder = `Paste ${label.toLowerCase()} blank PNG base64...`;
+            textarea.rows = 3;
+            textarea.style.fontSize = '10px';
+            textarea.style.fontFamily = 'Courier New, monospace';
+            textarea.value = this.stateManager.getState().settings[key] || '';
+
+            textarea.addEventListener('input', (e) => {
+                this.stateManager.getState().settings[key] = e.target.value.trim();
+                this.stateManager.saveSettings();
+                console.log(`[GVP Aurora] Updated ${key}`);
+            });
+
+            fieldGroup.appendChild(textarea);
+            group.appendChild(fieldGroup);
+        });
+
+        container.appendChild(group);
+    }
+
+    _applySilentModeAudioDefaults() {
+        if (this.stateManager && typeof this.stateManager.applySilentModeAudioDefaults === 'function') {
+            this.stateManager.applySilentModeAudioDefaults();
+            return;
+        }
+
+        const state = this.stateManager.getState();
+        state.promptData.audio = state.promptData.audio || {};
+        state.promptData.audio.music = 'none';
+        state.promptData.audio.ambient = 'none';
+        state.promptData.audio.sound_effect = 'none';
+        state.promptData.audio.mix_level = 'No music, no ambient room noise, maximum dialogue audio, medium human sounds.';
+    }
+
+    _handleSilentModeToggle(isEnabled) {
+        const enabled = !!isEnabled;
+        if (this.uiManager && typeof this.uiManager.setSilentMode === 'function') {
+            this.uiManager.setSilentMode(enabled, { from: 'settings' });
+            return;
+        }
+
+        const state = this.stateManager.getState();
+        state.settings.silentMode = enabled;
+        if (enabled) {
+            this._applySilentModeAudioDefaults();
+        }
+        this.stateManager.saveSettings();
+        this._syncAudioFieldsWithState();
+        if (this.uiManager && typeof this.uiManager.updateVoiceOnlyIndicator === 'function') {
+            this.uiManager.updateVoiceOnlyIndicator(enabled);
+        }
+        console.log(`[GVP] Silent mode ${enabled ? 'enabled' : 'disabled'}`);
+    }
+
+    syncSilentModeUI(isEnabled) {
+        const checkbox = this.shadowRoot?.getElementById('gvp-silent-mode-checkbox');
+        if (checkbox) {
+            checkbox.checked = !!isEnabled;
+        }
+        this._syncAudioFieldsWithState();
+    }
+
+    _syncAudioFieldsWithState() {
+        if (!this.shadowRoot) {
+            return;
+        }
+
+        const audio = this.stateManager.getState().promptData?.audio || {};
+        const mapping = {
+            'audio.music': audio.music || '',
+            'audio.ambient': audio.ambient || '',
+            'audio.sound_effect': audio.sound_effect || '',
+            'audio.mix_level': audio.mix_level || ''
+        };
+
+        Object.entries(mapping).forEach(([fieldKey, value]) => {
+            const textarea = this.shadowRoot.querySelector(`textarea[data-field-name="${fieldKey}"]`);
+            if (textarea) {
+                textarea.value = value;
+            }
+        });
+    }
+};

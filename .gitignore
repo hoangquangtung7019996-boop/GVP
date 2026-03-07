@@ -1,0 +1,29 @@
+# GVP Repository - Strict Whitelist Ignore File
+# Only include files necessary for the extension to function.
+
+# 1. Ignore everything by default
+*
+.*
+
+# 2. Allow Git configuration
+!.gitignore
+!README.md
+
+# 3. Allow Extension Core
+!manifest.json
+!src/
+!src/**
+!public/
+!public/**
+!icons/
+!icons/**
+!_locales/
+!_locales/**
+
+# 4. Explicitly exclude any JSON/HTML bloat even if in allowed folders (safety check)
+src/**/*.json
+public/**/*.json
+src/**/*.html
+public/**/*.html
+
+# Re-allow explicit config JSONs if verified later, but for now we keep it lean.

@@ -1,0 +1,112 @@
+{
+    "manifest_version": 3,
+    "default_locale": "en",
+    "name": "Grok Video Prompter",
+    "version": "1.46.14",
+    "description": "Injects a prompt textbox, generates video ideas, and streams results directly into Grok UI.",
+    "permissions": [
+        "storage",
+        "scripting",
+        "activeTab",
+        "unlimitedStorage"
+    ],
+    "commands": {
+        "_execute_action": {
+            "suggested_key": {
+                "default": "Ctrl+Shift+F"
+            },
+            "description": "Activate the extension"
+        },
+        "reload-extension": {
+            "suggested_key": {
+                "default": "Ctrl+Shift+R"
+            },
+            "description": "Reload extension and refresh Grok page"
+        }
+    },
+    "host_permissions": [
+        "*://grok.com/*"
+    ],
+    "content_scripts": [
+        {
+            "matches": [
+                "*://grok.com/*"
+            ],
+            "js": [
+                "src/content/styles/theme.js",
+                "src/content/constants/stylesheet.js",
+                "src/content/utils/Logger.js",
+                "src/content/constants/regex.js",
+                "src/content/constants/selectors.js",
+                "src/content/constants/gvp_schema_lookups.js",
+                "src/content/constants/gvp_parts_lookups.js",
+                "src/content/utils/StorageHelper.js",
+                "src/content/utils/SentenceFormatter.js",
+                "src/content/utils/ArrayFieldManager.js",
+                "src/content/utils/ModerationDetector.js",
+                "src/content/utils/debounce.js",
+                "src/content/utils/StringUtils.js",
+                "src/content/managers/StorageManager.js",
+                "src/content/managers/StateManager.js",
+                "src/content/managers/ReactAutomation.js",
+                "src/content/managers/RawInputManager.js",
+                "src/content/managers/AdvancedRawInputManager.js",
+                "src/content/managers/UploadAutomationManager.js",
+                "src/content/managers/GrokSettingsManager.js",
+                "src/content/managers/IndexedDBManager.js",
+                "src/content/managers/JobQueueManager.js",
+                "src/content/managers/MultiVideoManager.js",
+                "src/content/managers/ImageProjectManager.js",
+                "src/content/managers/NetworkInterceptor.js",
+                "src/content/managers/UIProgressAPI.js",
+                "src/content/managers/InspectionManager.js",
+                "src/content/managers/ui/UIHelpers.js",
+                "src/content/managers/ui/uiConstants.js",
+                "src/content/managers/ui/UIStatusManager.js",
+                "src/content/managers/ui/UITabManager.js",
+                "src/content/managers/ui/UIModalManager.js",
+                "src/content/managers/ui/UIInspectorManager.js",
+                "src/content/managers/ui/UISettingsManager.js",
+                "src/content/managers/ui/UIRawInputManager.js",
+                "src/content/managers/ui/UIPromptLibraryManager.js",
+                "src/content/managers/ui/UIChunkBuilderManager.js",
+                "src/content/managers/ui/UIWordSwapperManager.js",
+                "src/content/managers/ui/UISFWModeManager.js",
+                "src/content/managers/ui/UIIDBHarvesterManager.js",
+                "src/content/managers/ui/UIFormManager.js",
+                "src/content/managers/ui/UIUploadManager.js",
+                "src/content/managers/ui/UIPlaylistManager.js",
+                "src/content/managers/ui/UIUpscaleAutomationManager.js",
+                "src/content/managers/ui/UIVideoQueueManager.js",
+                "src/content/managers/VideoQueueManager.js",
+                "src/content/managers/ui/GalleryMiniUIManager.js",
+                "src/content/managers/ui/UIGalleryManager.js",
+                "src/content/managers/UIManager.js",
+                "src/content/content.js"
+            ]
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "public/injected/gvpFetchInterceptor.js"
+            ],
+            "matches": [
+                "*://grok.com/*"
+            ]
+        }
+    ],
+    "background": {
+        "service_worker": "src/background/background.js"
+    },
+    "action": {
+        "default_title": "Grok Video Prompter",
+        "default_icon": "icons/GVP.ico"
+    },
+    "icons": {
+        "16": "icons/GVP.ico",
+        "32": "icons/GVP.ico",
+        "48": "icons/GVP.ico",
+        "128": "icons/GVP.ico"
+    }
+}

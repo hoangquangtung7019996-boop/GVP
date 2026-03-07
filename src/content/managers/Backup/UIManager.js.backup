@@ -1,0 +1,359 @@
+// UIManager.js - Core UI orchestrator delegating to sub-managers
+// Dependencies: StateManager, ReactAutomation, AdvancedRawInputManager, MultiVideoManager, ImageProjectManager, SentenceFormatter, ArrayFieldManager, All UI Sub-managers
+
+window.UIManager = class UIManager {
+    constructor(stateManager, reactAutomation, advancedRawInputManager, multiVideoManager, imageProjectManager, networkInterceptor, arrayFieldManager, sentenceFormatter) {
+        this.stateManager = stateManager;
+        this.reactAutomation = reactAutomation;
+        this.advancedRawInputManager = advancedRawInputManager;
+        this.multiVideoManager = multiVideoManager;
+        this.imageProjectManager = imageProjectManager;
+        this.networkInterceptor = networkInterceptor;
+        this.arrayFieldManager = arrayFieldManager;
+        this.sentenceFormatter = sentenceFormatter;
+        
+        this.shadowHost = null;
+        this.shadowRoot = null;
+        this.isOpen = false;
+        this.drawerExpanded = false;
+        
+        // Sub-managers (will be initialized in createUI)
+        this.uiHelpers = null;
+        this.uiStatusManager = null;
+        this.uiTabManager = null;
+        this.uiModalManager = null;
+        this.uiSettingsManager = null;
+        this.uiHistoryManager = null;
+        this.uiGenerationsManager = null;
+        this.uiRawInputManager = null;
+        this.uiFormManager = null;
+        this.quickJsonToggle = null;
+        this.quickRawToggle = null;
+        this.spicyButton = null;
+        this._historyFeatureEnabled = false;
+    }
+
+    createUI() {
+        try {
+            this._createShadowDOM();
+            
+            // Initialize sub-managers
+            this.uiHelpers = new window.UIHelpers();
+            this.uiStatusManager = new window.UIStatusManager(this.stateManager, this.shadowRoot);
+            this.uiTabManager = new window.UITabManager(this.shadowRoot);
+            this.uiModalManager = new window.UIModalManager(this.stateManager, this.shadowRoot, this.sentenceFormatter);
+            this.uiSettingsManager = new window.UISettingsManager(this.stateManager, this.shadowRoot, this.networkInterceptor, this.imageProjectManager);
+            this.uiHistoryManager = null;
+            this.uiGenerationsManager = null;
+            this.uiRawInputManager = new window.UIRawInputManager(this.stateManager, this.advancedRawInputManager, this.reactAutomation, this.shadowRoot);
+            this.uiFormManager = new window.UIFormManager(this.stateManager, this.arrayFieldManager, this.sentenceFormatter, this.reactAutomation, this.shadowRoot);
+            
+            this._createFloatingButton();
+            this._createBackdrop();
+            this._createDrawer();
+            console.log('[GVP] UI created');
+        } catch (error) {
+            console.error('[GVP] UI creation failed:', error);
+            throw error;
+        }
+    }
+
+    _createShadowDOM() {
+        this.shadowHost = document.createElement('div');
+        this.shadowHost.id = 'gvp-shadow-host';
+        document.body.appendChild(this.shadowHost);
+        this.shadowRoot = this.shadowHost.attachShadow({ mode: 'open', delegatesFocus: false });
+        const style = document.createElement('style');
+        style.textContent = GVP_STYLESHEET;
+        this.shadowRoot.appendChild(style);
+
+        this.shadowHost.addEventListener('focusin', (e) => {
+            e.stopPropagation();
+        }, { capture: true });
+
+        this.shadowHost.addEventListener('focusout', (e) => {
+            const relatedTarget = e.relatedTarget;
+            if (relatedTarget && !this.shadowRoot.contains(relatedTarget)) {
+                e.stopPropagation();
+            }
+        }, { capture: true });
+    }
+
+    _createFloatingButton() {
+        const btn = document.createElement('button');
+        btn.id = 'gvp-floating-btn';
+        btn.textContent = 'GV';
+        btn.addEventListener('click', () => this.toggleDrawer());
+        this.shadowRoot.appendChild(btn);
+    }
+
+    _createBackdrop() {
+        const backdrop = document.createElement('div');
+        backdrop.id = 'gvp-backdrop';
+        backdrop.addEventListener('click', () => this.toggleDrawer());
+        this.shadowRoot.appendChild(backdrop);
+    }
+
+    _createDrawer() {
+        const drawer = document.createElement('div');
+        drawer.id = 'gvp-drawer';
+
+        const header = this._createHeader();
+        const tabs = this.uiTabManager._createTabs();
+        const tabContent = this._createTabContent();
+
+        drawer.appendChild(header);
+        drawer.appendChild(this.uiStatusManager.createStatusDisplay());
+        drawer.appendChild(tabs);
+        drawer.appendChild(tabContent);
+
+        this.shadowRoot.appendChild(drawer);
+        this._createBottomBar();
+        this.uiModalManager._createFullscreenModal();
+        this.uiModalManager._createViewJsonModal();
+    }
+
+    _createHeader() {
+        const header = document.createElement('div');
+        header.id = 'gvp-header';
+
+        const title = document.createElement('div');
+        title.id = 'gvp-title';
+        title.textContent = `Grok Video Prompter v${window.GVP_APP_VERSION || '?.?.?'}`;
+
+        const leftContainer = document.createElement('div');
+        leftContainer.className = 'gvp-header-left';
+
+        const rightContainer = document.createElement('div');
+        rightContainer.className = 'gvp-header-right';
+
+        const minimizeBtn = document.createElement('button');
+        minimizeBtn.className = 'gvp-header-btn';
+        minimizeBtn.innerHTML = '−';
+        minimizeBtn.addEventListener('click', () => this.toggleDrawer());
+
+        rightContainer.appendChild(minimizeBtn);
+
+        header.appendChild(title);
+        header.appendChild(leftContainer);
+        header.appendChild(rightContainer);
+
+        return header;
+    }
+
+    _createTabContent() {
+        const tabContent = document.createElement('div');
+        tabContent.id = 'gvp-tab-content';
+
+        const jsonEditorTab = this.uiFormManager._createJsonEditorTab();
+        const rawInputTab = this.uiRawInputManager._createRawInputTab();
+        const historyTab = this._createMergedHistoryPlaceholder();
+
+        jsonEditorTab.id = 'gvp-tab-JSON';
+        rawInputTab.id = 'gvp-tab-Raw';
+        historyTab.id = 'gvp-tab-History';
+
+        tabContent.appendChild(jsonEditorTab);
+        tabContent.appendChild(rawInputTab);
+        tabContent.appendChild(historyTab);
+
+        return tabContent;
+    }
+
+    _createMergedHistoryPlaceholder() {
+        const container = document.createElement('div');
+        container.className = 'gvp-tab-content';
+        container.style.display = 'none';
+        container.style.padding = '32px 24px';
+        container.style.textAlign = 'center';
+        container.style.color = '#94a3b8';
+
+        const icon = document.createElement('div');
+        icon.textContent = '🧭';
+        icon.style.fontSize = '48px';
+        icon.style.marginBottom = '12px';
+
+        const title = document.createElement('h3');
+        title.textContent = 'History & Generations Paused';
+        title.style.margin = '0 0 12px 0';
+        title.style.color = '#fbbf24';
+
+        const message = document.createElement('p');
+        message.style.margin = '0';
+        message.style.maxWidth = '360px';
+        message.style.lineHeight = '1.6';
+        message.style.display = 'inline-block';
+        message.textContent = 'The previous history and generation tracking views are offline while we merge everything into the new workflow. We will light this tab back up once the upgrade is complete.';
+
+        container.appendChild(icon);
+        container.appendChild(title);
+        container.appendChild(message);
+        return container;
+    }
+
+    _createBottomBar() {
+        const bottomBar = document.createElement('div');
+        bottomBar.id = 'gvp-bottom-bar';
+
+        const topRow = document.createElement('div');
+        topRow.className = 'gvp-bottom-row top';
+        const quickJsonToggle = document.createElement('button');
+        quickJsonToggle.className = 'gvp-button gvp-quick-toggle gvp-quick-json-btn';
+        quickJsonToggle.textContent = '⏩ Quick JSON';
+        quickJsonToggle.addEventListener('click', () => {
+            const currentMode = this.stateManager.getState().ui.quickLaunchMode;
+            this.setQuickLaunchMode(currentMode === 'json' ? null : 'json');
+        });
+        const viewJsonBtn = document.createElement('button');
+        viewJsonBtn.className = 'gvp-button';
+        viewJsonBtn.textContent = '👁️ View Current JSON';
+        viewJsonBtn.addEventListener('click', () => this.uiModalManager.showViewJsonModal());
+        const quickRawToggle = document.createElement('button');
+        quickRawToggle.className = 'gvp-button gvp-quick-toggle gvp-quick-raw-btn';
+        quickRawToggle.textContent = '⏩ Quick Raw';
+        quickRawToggle.addEventListener('click', () => {
+            const currentMode = this.stateManager.getState().ui.quickLaunchMode;
+            this.setQuickLaunchMode(currentMode === 'raw' ? null : 'raw');
+        });
+        topRow.appendChild(quickJsonToggle);
+        topRow.appendChild(viewJsonBtn);
+        topRow.appendChild(quickRawToggle);
+        this.quickJsonToggle = quickJsonToggle;
+        this.quickRawToggle = quickRawToggle;
+        const bottomRow = document.createElement('div');
+        bottomRow.className = 'gvp-bottom-row bottom';
+
+        const leftSection = document.createElement('div');
+        leftSection.className = 'gvp-section';
+        const generateJsonBtn = document.createElement('button');
+        generateJsonBtn.className = 'gvp-button primary gvp-generate-json-btn';
+        generateJsonBtn.textContent = 'Generate JSON';
+        generateJsonBtn.addEventListener('click', () => this.uiFormManager.handleGenerateJson());
+        const generateRawBtn = document.createElement('button');
+        generateRawBtn.className = 'gvp-button gvp-generate-raw-btn';
+        generateRawBtn.textContent = 'Generate Raw';
+        generateRawBtn.addEventListener('click', () => this.uiRawInputManager.handleGenerateRaw());
+        leftSection.appendChild(generateJsonBtn);
+        leftSection.appendChild(generateRawBtn);
+
+        const rightSection = document.createElement('div');
+        rightSection.className = 'gvp-section';
+        const spicyBtn = document.createElement('button');
+        spicyBtn.className = 'gvp-button gvp-spicy-mode-btn';
+        spicyBtn.textContent = 'Spicy Mode';
+        spicyBtn.addEventListener('click', () => this.toggleSpicyMode());
+        rightSection.appendChild(spicyBtn);
+        this.spicyButton = spicyBtn;
+
+        bottomRow.appendChild(leftSection);
+        bottomRow.appendChild(rightSection);
+
+        bottomBar.appendChild(topRow);
+        bottomBar.appendChild(bottomRow);
+        this.shadowRoot.appendChild(bottomBar);
+        this._updateQuickLaunchButtons();
+        this._syncSpicyButton();
+    }
+
+    applyRawPrompt(rawPrompt) {
+        this._applyRawPrompt(rawPrompt);
+    }
+
+    _applyRawPrompt(rawPrompt) {
+        const trimmed = typeof rawPrompt === 'string' ? rawPrompt.trim() : '';
+        if (!trimmed) {
+            return;
+        }
+        this.networkInterceptor.applyRawPrompt(trimmed);
+        console.log('[GVP] ✅ Applied raw prompt to editor');
+    }
+
+    setQuickLaunchMode(mode) {
+        const normalized = mode === 'json' ? 'json' : mode === 'raw' ? 'raw' : null;
+        const state = this.stateManager.getState();
+        state.ui.quickLaunchMode = normalized;
+        this._updateQuickLaunchButtons();
+        document.dispatchEvent(new CustomEvent('gvp:quick-launch-mode-changed', { detail: { mode: normalized } }));
+        console.log('[GVP Quick] Quick launch mode ->', normalized ?? 'off');
+    }
+
+    getQuickLaunchMode() {
+        return this.stateManager.getState().ui.quickLaunchMode;
+    }
+
+    _updateQuickLaunchButtons() {
+        const mode = this.stateManager.getState().ui.quickLaunchMode;
+        if (this.quickJsonToggle) {
+            const isJson = mode === 'json';
+            this.quickJsonToggle.classList.toggle('active', isJson);
+            this.quickJsonToggle.setAttribute('aria-pressed', isJson ? 'true' : 'false');
+        }
+        if (this.quickRawToggle) {
+            const isRaw = mode === 'raw';
+            this.quickRawToggle.classList.toggle('active', isRaw);
+            this.quickRawToggle.setAttribute('aria-pressed', isRaw ? 'true' : 'false');
+        }
+    }
+
+    _syncSpicyButton() {
+        const useSpicy = !!this.stateManager.getState().generation.useSpicy;
+        const button = this.spicyButton || this.shadowRoot.querySelector('.gvp-spicy-mode-btn');
+        if (!button) {
+            return;
+        }
+        button.classList.toggle('active', useSpicy);
+        button.setAttribute('aria-pressed', useSpicy ? 'true' : 'false');
+        button.style.background = useSpicy ? '#b91c1c' : '#1f2937';
+    }
+
+    setSpicyMode(isActive) {
+        const normalized = !!isActive;
+        const state = this.stateManager.getState();
+        if (state.generation.useSpicy === normalized) {
+            this._syncSpicyButton();
+            return;
+        }
+        state.generation.useSpicy = normalized;
+        console.log('[GVP Spicy] Spicy mode toggled:', normalized);
+        this._syncSpicyButton();
+        if (this.uiStatusManager && typeof this.uiStatusManager.updateModeIndicator === 'function') {
+            this.uiStatusManager.updateModeIndicator();
+        }
+    }
+    toggleDrawer() {
+        this.isOpen = !this.isOpen;
+        const drawer = this.shadowRoot.getElementById('gvp-drawer');
+        const backdrop = this.shadowRoot.getElementById('gvp-backdrop');
+        const bottomBar = this.shadowRoot.getElementById('gvp-bottom-bar');
+        
+        if (drawer) drawer.classList.toggle('open', this.isOpen);
+        if (backdrop) backdrop.classList.toggle('visible', this.isOpen);
+        if (bottomBar) bottomBar.style.display = this.isOpen ? 'block' : 'none';
+        
+        this._updateBottomBar();
+    }
+
+    toggleSpicyMode() {
+        const state = this.stateManager.getState();
+        this.setSpicyMode(!state.generation.useSpicy);
+    }
+    _updateBottomBar() {
+        const bottomBar = this.shadowRoot.getElementById('gvp-bottom-bar');
+        const state = this.stateManager.getState();
+        if (bottomBar) {
+            if (state.ui.drawerExpanded) {
+                bottomBar.classList.add('expanded');
+            } else {
+                bottomBar.classList.remove('expanded');
+            }
+        }
+        this._updateQuickLaunchButtons();
+        this._syncSpicyButton();
+    }
+};
+
+
+
+
+
+
