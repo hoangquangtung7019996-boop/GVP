@@ -2249,6 +2249,30 @@
                         } else {
                             sendResponse?.({ success: false, error: 'toggleDrawer not available' });
                         }
+                    } else if (request.action === 'gvpOmniboxSearch') {
+                        if (window.idbManager) {
+                            window.idbManager.searchUnifiedHistory(request.query)
+                                .then(results => sendResponse({ success: true, results }))
+                                .catch(err => {
+                                    window.Logger.error('Bridge', 'Omnibox search failed:', err);
+                                    sendResponse({ success: false, error: err.message });
+                                });
+                            return true; // async
+                        } else {
+                            sendResponse({ success: false, error: 'IDBManager not found' });
+                        }
+                    } else if (request.action === 'getDatabaseReport') {
+                        if (window.idbManager) {
+                            window.idbManager.getDatabaseReport()
+                                .then(report => sendResponse({ success: true, report }))
+                                .catch(err => {
+                                    window.Logger.error('Bridge', 'Diagnostic report failed:', err);
+                                    sendResponse({ success: false, error: err.message });
+                                });
+                            return true; // async
+                        } else {
+                            sendResponse({ success: false, error: 'IDBManager not found' });
+                        }
                     }
                 });
                 window.Logger.debug('Init', 'Toolbar icon listener setup complete');

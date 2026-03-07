@@ -25,6 +25,9 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
 
         this._onKeyDown = this._handleKeyDown.bind(this);
         this._onOutsideClick = this._handleOutsideClick.bind(this);
+        this._onIdbSync = this._onIdbSync.bind(this);
+
+        window.addEventListener('gvp:idb-sync', this._onIdbSync);
 
         console.log('[GVP GalleryMiniUIManager] ✅ Constructor — shadowRoot via uiManager:', uiManager?.shadowRoot ? '✅ present' : '❌ MISSING');
         window.Logger.info('GalleryMiniUIManager', 'Initialized');
@@ -92,7 +95,36 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
 
     destroy() {
         this.close();
+        window.removeEventListener('gvp:idb-sync', this._onIdbSync);
         window.Logger.info('GalleryMiniUIManager', 'Destroyed');
+    }
+
+    /**
+     * React to IDB changes broadcast from other tabs.
+     */
+    async _onIdbSync(e) {
+        if (!this.isOpen || !this.currentImageId) return;
+
+        const { storeName, type, data } = e.detail || {};
+
+        // If the unified history was updated, we might need to refresh
+        if (storeName === 'unifiedVideoHistory') {
+            // Check if the update affects our current root lineage
+            const affectedId = data?.imageId || data?.id;
+
+            // For simplicity, we refresh if any unifiedVideoHistory change happens, 
+            // but we could optimize to only refresh if affectedId belongs to our current lineage.
+            window.Logger.debug('GalleryMiniUIManager', `IDB sync (${type}) received for ${storeName}, refreshing rails…`);
+
+            try {
+                const refreshed = await this._resolveData(this.currentImageId);
+                if (this._rootEl && this.isOpen) {
+                    this._populateRails(this._rootEl, refreshed);
+                }
+            } catch (err) {
+                window.Logger.error('GalleryMiniUIManager', 'Sync refresh failed', err);
+            }
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

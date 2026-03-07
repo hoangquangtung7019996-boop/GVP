@@ -1,5 +1,4 @@
 /**
-/**
  * IndexedDBManager.js
  * Handles unlimited storage using IndexedDB for large datasets
  * Replaces chrome.storage.local for multi-gen history and progress tracking
@@ -10,10 +9,14 @@ window.IndexedDBManager = class IndexedDBManager {
     constructor() {
         IndexedDBManager.instance = this;
         this.dbName = 'GrokVideoPrompter';
-        this.dbVersion = 17; // v17: parentIndex store for O(1) gallery parent-UUID resolution
+        this.dbVersion = 19; // v19: Optimized Omnibox search via lowercase indexes
         this.db = null;
         this.initialized = false;
         this.migrationComplete = false;
+
+        // Multi-tab synchronization
+        this.syncChannel = new BroadcastChannel('gvp_db_sync');
+        this._setupSyncListener();
 
         // Object store names
         this.STORES = {
@@ -53,6 +56,28 @@ window.IndexedDBManager = class IndexedDBManager {
             MAX_IMAGE_PROJECT_AGE_DAYS: 90,    // Days to keep image project history
             CLEANUP_BATCH_SIZE: 10             // Items to process per cleanup batch
         };
+    }
+
+    /**
+     * Set up listener for multi-tab synchronization
+     */
+    _setupSyncListener() {
+        this.syncChannel.onmessage = (event) => {
+            const { type, storeName, data } = event.data;
+            // Emit a global event that other managers (like UIGalleryManager) can listen to
+            window.dispatchEvent(new CustomEvent('gvp:idb-sync', {
+                detail: { type, storeName, data }
+            }));
+        };
+    }
+
+    /**
+     * Broadcast a change to other tabs
+     */
+    _broadcastChange(type, storeName, data = null) {
+        if (this.syncChannel) {
+            this.syncChannel.postMessage({ type, storeName, data });
+        }
     }
 
     /**
@@ -130,326 +155,11 @@ window.IndexedDBManager = class IndexedDBManager {
                 const db = event.target.result;
                 const transaction = event.target.transaction;
 
-                // Helper to ensure unified store exists (and indexes) before any migrations that touch it
-                const ensureUnifiedStore = () => {
-                    let unifiedStoreRef = null;
-                    if (!db.objectStoreNames.contains(this.STORES.UNIFIED_VIDEO_HISTORY)) {
-                        unifiedStoreRef = db.createObjectStore(this.STORES.UNIFIED_VIDEO_HISTORY, { keyPath: 'imageId' });
-                        unifiedStoreRef.createIndex('accountId', 'accountId', { unique: false });
-                        unifiedStoreRef.createIndex('updatedAt', 'updatedAt', { unique: false });
-                        unifiedStoreRef.createIndex('createdAt', 'createdAt', { unique: false });
-                        console.log('[GVP IndexedDB] Created unifiedVideoHistory store');
-                    } else {
-                        unifiedStoreRef = transaction.objectStore(this.STORES.UNIFIED_VIDEO_HISTORY);
-                        if (!unifiedStoreRef.indexNames.contains('accountId')) {
-                            unifiedStoreRef.createIndex('accountId', 'accountId', { unique: false });
-                            console.log('[GVP IndexedDB] Added accountId index to unifiedVideoHistory');
-                        }
-                        if (!unifiedStoreRef.indexNames.contains('updatedAt')) {
-                            unifiedStoreRef.createIndex('updatedAt', 'updatedAt', { unique: false });
-                            console.log('[GVP IndexedDB] Added updatedAt index to unifiedVideoHistory');
-                        }
-                        if (!unifiedStoreRef.indexNames.contains('createdAt')) {
-                            unifiedStoreRef.createIndex('createdAt', 'createdAt', { unique: false });
-                            console.log('[GVP IndexedDB] Added createdAt index to unifiedVideoHistory');
-                        }
-                    }
-                    return unifiedStoreRef;
-                };
-
-                // V1 Schema: multiGenHistory, progressTracking, settingsBackup
-                if (!db.objectStoreNames.contains(this.STORES.MULTI_GEN_HISTORY)) {
-                    const historyStore = db.createObjectStore(this.STORES.MULTI_GEN_HISTORY, { keyPath: 'imageId' });
-                    historyStore.createIndex('accountId', 'accountId', { unique: false });
-                    historyStore.createIndex('timestamp', 'timestamp', { unique: false });
-                    historyStore.createIndex('status', 'status', { unique: false });
-                    console.log('[GVP IndexedDB] Created multiGenHistory store');
-                } else if (event.oldVersion < 2) {
-                    // V2 upgrade: Add status index to existing store
-                    const historyStore = transaction.objectStore(this.STORES.MULTI_GEN_HISTORY);
-                    if (!historyStore.indexNames.contains('status')) {
-                        historyStore.createIndex('status', 'status', { unique: false });
-                        console.log('[GVP IndexedDB] Added status index to multiGenHistory');
-                    }
-                }
-
-                if (!db.objectStoreNames.contains(this.STORES.PROGRESS_TRACKING)) {
-                    const progressStore = db.createObjectStore(this.STORES.PROGRESS_TRACKING, { keyPath: 'generationId' });
-                    progressStore.createIndex('imageId', 'imageId', { unique: false });
-                    progressStore.createIndex('timestamp', 'timestamp', { unique: false });
-                    progressStore.createIndex('status', 'status', { unique: false });
-                    console.log('[GVP IndexedDB] Created progressTracking store');
-                } else if (event.oldVersion < 2) {
-                    // V2 upgrade: Add indexes to existing store
-                    const progressStore = transaction.objectStore(this.STORES.PROGRESS_TRACKING);
-                    if (!progressStore.indexNames.contains('imageId')) {
-                        progressStore.createIndex('imageId', 'imageId', { unique: false });
-                        console.log('[GVP IndexedDB] Added imageId index to progressTracking');
-                    }
-                    if (!progressStore.indexNames.contains('timestamp')) {
-                        progressStore.createIndex('timestamp', 'timestamp', { unique: false });
-                        console.log('[GVP IndexedDB] Added timestamp index to progressTracking');
-                    }
-                    if (!progressStore.indexNames.contains('status')) {
-                        progressStore.createIndex('status', 'status', { unique: false });
-                        console.log('[GVP IndexedDB] Added status index to progressTracking');
-                    }
-                }
-
-                if (!db.objectStoreNames.contains(this.STORES.SETTINGS_BACKUP)) {
-                    db.createObjectStore(this.STORES.SETTINGS_BACKUP, { keyPath: 'key' });
-                    console.log('[GVP IndexedDB] Created settingsBackup store');
-                }
-
-                // V2 Schema: New stores
-                if (event.oldVersion < 2) {
-                    if (!db.objectStoreNames.contains(this.STORES.GALLERY_DATA)) {
-                        const galleryStore = db.createObjectStore(this.STORES.GALLERY_DATA, { keyPath: 'postId' });
-                        galleryStore.createIndex('accountId', 'accountId', { unique: false });
-                        galleryStore.createIndex('timestamp', 'timestamp', { unique: false });
-                        console.log('[GVP IndexedDB] Created galleryData store');
-                    }
-
-                    if (!db.objectStoreNames.contains(this.STORES.IMAGE_PROJECTS)) {
-                        const projectsStore = db.createObjectStore(this.STORES.IMAGE_PROJECTS, { keyPath: 'compositeKey' });
-                        projectsStore.createIndex('accountId', 'accountId', { unique: false });
-                        projectsStore.createIndex('imageId', 'imageId', { unique: false });
-                        projectsStore.createIndex('timestamp', 'timestamp', { unique: false });
-                        console.log('[GVP IndexedDB] Created imageProjects store');
-                    }
-                }
-
-                // V3 Schema: JSON Presets & Raw Templates
-                if (event.oldVersion < 3) {
-                    if (!db.objectStoreNames.contains(this.STORES.JSON_PRESETS)) {
-                        const presetStore = db.createObjectStore(this.STORES.JSON_PRESETS, { keyPath: 'name' });
-                        presetStore.createIndex('savedAt', 'savedAt', { unique: false });
-                        console.log('[GVP IndexedDB] Created jsonPresets store');
-                    }
-
-                    if (!db.objectStoreNames.contains(this.STORES.RAW_TEMPLATES)) {
-                        const templateStore = db.createObjectStore(this.STORES.RAW_TEMPLATES, { keyPath: 'id' });
-                        templateStore.createIndex('name', 'name', { unique: false });
-                        console.log('[GVP IndexedDB] Created rawTemplates store');
-                    }
-                }
-
-                // V4 Schema: Saved Prompt Slots, Custom Dropdowns, Custom Objects/Dialogues
-                if (event.oldVersion < 4) {
-                    const unifiedStore = ensureUnifiedStore();
-
-                    if (!db.objectStoreNames.contains(this.STORES.SAVED_PROMPT_SLOTS)) {
-                        const slotsStore = db.createObjectStore(this.STORES.SAVED_PROMPT_SLOTS, { keyPath: 'slotId' });
-                        slotsStore.createIndex('active', 'active', { unique: false });
-                        slotsStore.createIndex('timestamp', 'timestamp', { unique: false });
-                        console.log('[GVP IndexedDB] Created savedPromptSlots store');
-                    }
-
-                    if (!db.objectStoreNames.contains(this.STORES.CUSTOM_DROPDOWNS)) {
-                        db.createObjectStore(this.STORES.CUSTOM_DROPDOWNS, { keyPath: 'category' });
-                        console.log('[GVP IndexedDB] Created customDropdownOptions store');
-                    }
-
-                    if (!db.objectStoreNames.contains(this.STORES.CUSTOM_OBJECTS)) {
-                        const objectsStore = db.createObjectStore(this.STORES.CUSTOM_OBJECTS, { keyPath: 'id' });
-                        objectsStore.createIndex('timestamp', 'timestamp', { unique: false });
-                        console.log('[GVP IndexedDB] Created customObjects store');
-                    }
-
-                    if (!db.objectStoreNames.contains(this.STORES.CUSTOM_DIALOGUES)) {
-                        const dialoguesStore = db.createObjectStore(this.STORES.CUSTOM_DIALOGUES, { keyPath: 'id' });
-                        const multiGenStore = transaction.objectStore(this.STORES.MULTI_GEN_HISTORY);
-                        multiGenStore.openCursor().onsuccess = (e) => {
-                            const cursor = e.target.result;
-                            if (cursor) {
-                                const entry = cursor.value;
-                                // Transform to Unified Schema
-                                const unifiedEntry = {
-                                    imageId: entry.imageId,
-                                    accountId: entry.accountId || 'unknown',
-                                    updatedAt: entry.updatedAt || entry.createdAt || new Date().toISOString(),
-                                    thumbnailUrl: entry.thumbnailUrl || '',
-                                    prompt: entry.prompt || '',
-                                    attempts: entry.attempts || [],
-                                    projectSettings: {}, // Will be populated from imageProjects
-                                    galleryMeta: {}      // Will be populated from galleryData
-                                };
-                                unifiedStore.put(unifiedEntry);
-                                cursor.continue();
-                            }
-                        };
-                    }
-
-                    // 2. Migrate ImageProjects (Merge settings)
-                    if (db.objectStoreNames.contains(this.STORES.IMAGE_PROJECTS)) {
-                        const projectsStore = transaction.objectStore(this.STORES.IMAGE_PROJECTS);
-                        projectsStore.openCursor().onsuccess = (e) => {
-                            const cursor = e.target.result;
-                            if (cursor) {
-                                const project = cursor.value;
-                                if (project.imageId) {
-                                    const request = unifiedStore.get(project.imageId);
-                                    request.onsuccess = (ev) => {
-                                        const existing = ev.target.result;
-                                        if (existing) {
-                                            existing.projectSettings = {
-                                                aspectRatio: project.aspectRatio,
-                                                lastPrompt: project.lastPrompt,
-                                                spicyMode: project.spicyMode,
-                                                music: project.music,
-                                                wrapMode: project.wrapMode
-                                            };
-                                            unifiedStore.put(existing);
-                                        }
-                                    };
-                                }
-                                cursor.continue();
-                            }
-                        };
-                    }
-
-                    // 3. Migrate GalleryData (Merge meta)
-                    if (db.objectStoreNames.contains(this.STORES.GALLERY_DATA)) {
-                        const galleryStore = transaction.objectStore(this.STORES.GALLERY_DATA);
-                        galleryStore.openCursor().onsuccess = (e) => {
-                            const cursor = e.target.result;
-                            if (cursor) {
-                                const post = cursor.value;
-                                // Assuming postId maps to imageId for images
-                                const request = unifiedStore.get(post.postId);
-                                request.onsuccess = (ev) => {
-                                    const existing = ev.target.result;
-                                    if (existing) {
-                                        existing.galleryMeta = {
-                                            postId: post.postId,
-                                            source: 'gallery',
-                                            originalJson: post.originalJson || null
-                                        };
-                                        unifiedStore.put(existing);
-                                    } else {
-                                        // If it's in gallery but not history, add it as a "cached" item
-                                        // Only if it looks like an image/video we care about
-                                        const newEntry = {
-                                            imageId: post.postId,
-                                            accountId: post.accountId || 'unknown',
-                                            updatedAt: post.timestamp || new Date().toISOString(),
-                                            thumbnailUrl: post.thumbnailUrl || '',
-                                            prompt: '', // Gallery might not have prompt easily accessible here
-                                            attempts: [],
-                                            projectSettings: {},
-                                            galleryMeta: {
-                                                postId: post.postId,
-                                                source: 'gallery',
-                                                originalJson: post.originalJson || null
-                                            }
-                                        };
-                                        unifiedStore.put(newEntry);
-                                    }
-                                };
-                                cursor.continue();
-                            }
-                        };
-                    }
-                }
-
-                // V6+: Ensure unified store exists even if earlier migrations were skipped
-                if (event.oldVersion < 6) {
-                    ensureUnifiedStore();
-                }
-
-                // v12: Cleanup Legacy Stores (safe clear, not delete)
-                if (oldVersion < 12) {
-                    ensureUnifiedStore();
-
-                    const legacyStores = [
-                        this.STORES.MULTI_GEN_HISTORY,
-                        this.STORES.IMAGE_PROJECTS,
-                        this.STORES.GALLERY_DATA,
-                        this.STORES.PROGRESS_TRACKING
-                    ];
-
-                    legacyStores.forEach(storeName => {
-                        if (db.objectStoreNames.contains(storeName)) {
-                            try {
-                                const store = transaction.objectStore(storeName);
-                                store.clear();
-                                console.log(`[GVP IndexedDB] 🧹 Cleared legacy store: ${storeName} (v12 cleanup)`);
-                            } catch (clearErr) {
-                                console.warn(`[GVP IndexedDB] ⚠️ Failed to clear legacy store during cleanup: ${storeName}`, clearErr);
-                            }
-                        }
-                    });
-                }
-
-                // v13: Prompt Library stores
-                if (oldVersion < 13) {
-                    // prompts — main library store
-                    if (!db.objectStoreNames.contains(this.STORES.PROMPTS)) {
-                        const ps = db.createObjectStore(this.STORES.PROMPTS, { keyPath: 'id' });
-                        ps.createIndex('type', 'type', { unique: false });
-                        ps.createIndex('folder_id', 'folder_id', { unique: false });
-                        ps.createIndex('is_pinned', 'is_pinned', { unique: false });
-                        ps.createIndex('updated_at', 'updated_at', { unique: false });
-                        console.log('[GVP IndexedDB] Created prompts store (v13)');
-                    }
-
-                    // promptVersions — version history
-                    if (!db.objectStoreNames.contains(this.STORES.PROMPT_VERSIONS)) {
-                        const pvs = db.createObjectStore(this.STORES.PROMPT_VERSIONS, { keyPath: 'id' });
-                        pvs.createIndex('prompt_id', 'prompt_id', { unique: false });
-                        pvs.createIndex('version_num', 'version_num', { unique: false });
-                        console.log('[GVP IndexedDB] Created promptVersions store (v13)');
-                    }
-
-                    // folders — nested folder tree
-                    if (!db.objectStoreNames.contains(this.STORES.FOLDERS)) {
-                        const fs = db.createObjectStore(this.STORES.FOLDERS, { keyPath: 'id' });
-                        fs.createIndex('parent_id', 'parent_id', { unique: false });
-                        console.log('[GVP IndexedDB] Created folders store (v13)');
-                    }
-
-                    // promptTags — tag definitions (name unique)
-                    if (!db.objectStoreNames.contains(this.STORES.PROMPT_TAGS)) {
-                        const ts = db.createObjectStore(this.STORES.PROMPT_TAGS, { keyPath: 'id' });
-                        ts.createIndex('name', 'name', { unique: true });
-                        console.log('[GVP IndexedDB] Created promptTags store (v13)');
-                    }
-
-                    // usageLog — every generation dispatch from the raw textarea
-                    if (!db.objectStoreNames.contains(this.STORES.USAGE_LOG)) {
-                        const uls = db.createObjectStore(this.STORES.USAGE_LOG, { keyPath: 'id' });
-                        uls.createIndex('prompt_id', 'prompt_id', { unique: false });
-                        uls.createIndex('dispatched_at', 'dispatched_at', { unique: false });
-                        console.log('[GVP IndexedDB] Created usageLog store (v13)');
-                    }
-
-                    // recents — last 20 unique dispatched prompts
-                    if (!db.objectStoreNames.contains(this.STORES.RECENTS)) {
-                        const rs = db.createObjectStore(this.STORES.RECENTS, { keyPath: 'id' });
-                        rs.createIndex('dispatched_at', 'dispatched_at', { unique: false });
-                        console.log('[GVP IndexedDB] Created recents store (v13)');
-                    }
-                }
-
-                // v14-v16: Phase 2 Prompt Tools
-                if (oldVersion < 16) {
-                    if (!db.objectStoreNames.contains(this.STORES.CHUNKS)) {
-                        const cs = db.createObjectStore(this.STORES.CHUNKS, { keyPath: 'id' });
-                        console.log('[GVP IndexedDB] Created chunks store (v14/v16)');
-                    }
-
-                    if (!db.objectStoreNames.contains(this.STORES.SWAP_RULES)) {
-                        const sr = db.createObjectStore(this.STORES.SWAP_RULES, { keyPath: 'id' });
-                        console.log('[GVP IndexedDB] Created swap_rules store (v14/v16)');
-                    }
-                }
-
-                // v17: parentIndex — maps childId → rootId for O(1) gallery parent resolution
-                if (oldVersion < 17) {
-                    if (!db.objectStoreNames.contains(this.STORES.PARENT_INDEX)) {
-                        const pi = db.createObjectStore(this.STORES.PARENT_INDEX, { keyPath: 'childId' });
-                        pi.createIndex('rootId', 'rootId', { unique: false });
-                        console.log('[GVP IndexedDB] ✅ Created parentIndex store (v17)');
+                // Sequential migration execution
+                for (let v = oldVersion + 1; v <= event.newVersion; v++) {
+                    if (IndexedDBManager.MIGRATIONS[v]) {
+                        console.log(`[GVP IndexedDB] 🚀 Applying migration v${v}...`);
+                        IndexedDBManager.MIGRATIONS[v](db, transaction, this.STORES);
                     }
                 }
 
@@ -457,6 +167,167 @@ window.IndexedDBManager = class IndexedDBManager {
             };
         });
     }
+
+    /**
+     * Migration Registry
+     * Functions to apply schema changes for each version
+     */
+    static MIGRATIONS = {
+        1: (db, transaction, STORES) => {
+            if (!db.objectStoreNames.contains(STORES.MULTI_GEN_HISTORY)) {
+                const historyStore = db.createObjectStore(STORES.MULTI_GEN_HISTORY, { keyPath: 'imageId' });
+                historyStore.createIndex('accountId', 'accountId', { unique: false });
+                historyStore.createIndex('timestamp', 'timestamp', { unique: false });
+                historyStore.createIndex('status', 'status', { unique: false });
+            }
+            if (!db.objectStoreNames.contains(STORES.PROGRESS_TRACKING)) {
+                const progressStore = db.createObjectStore(STORES.PROGRESS_TRACKING, { keyPath: 'generationId' });
+                progressStore.createIndex('imageId', 'imageId', { unique: false });
+                progressStore.createIndex('timestamp', 'timestamp', { unique: false });
+                progressStore.createIndex('status', 'status', { unique: false });
+            }
+            if (!db.objectStoreNames.contains(STORES.SETTINGS_BACKUP)) {
+                db.createObjectStore(STORES.SETTINGS_BACKUP, { keyPath: 'key' });
+            }
+        },
+        2: (db, transaction, STORES) => {
+            if (!db.objectStoreNames.contains(STORES.GALLERY_DATA)) {
+                const galleryStore = db.createObjectStore(STORES.GALLERY_DATA, { keyPath: 'postId' });
+                galleryStore.createIndex('accountId', 'accountId', { unique: false });
+                galleryStore.createIndex('timestamp', 'timestamp', { unique: false });
+            }
+            if (!db.objectStoreNames.contains(STORES.IMAGE_PROJECTS)) {
+                const projectsStore = db.createObjectStore(STORES.IMAGE_PROJECTS, { keyPath: 'compositeKey' });
+                projectsStore.createIndex('accountId', 'accountId', { unique: false });
+                projectsStore.createIndex('imageId', 'imageId', { unique: false });
+                projectsStore.createIndex('timestamp', 'timestamp', { unique: false });
+            }
+            // Add status index to history if missing (should be there from v1, but defensive)
+            const historyStore = transaction.objectStore(STORES.MULTI_GEN_HISTORY);
+            if (!historyStore.indexNames.contains('status')) {
+                historyStore.createIndex('status', 'status', { unique: false });
+            }
+            const progressStore = transaction.objectStore(STORES.PROGRESS_TRACKING);
+            if (!progressStore.indexNames.contains('imageId')) progressStore.createIndex('imageId', 'imageId', { unique: false });
+            if (!progressStore.indexNames.contains('timestamp')) progressStore.createIndex('timestamp', 'timestamp', { unique: false });
+            if (!progressStore.indexNames.contains('status')) progressStore.createIndex('status', 'status', { unique: false });
+        },
+        3: (db, transaction, STORES) => {
+            if (!db.objectStoreNames.contains(STORES.JSON_PRESETS)) {
+                const presetStore = db.createObjectStore(STORES.JSON_PRESETS, { keyPath: 'name' });
+                presetStore.createIndex('savedAt', 'savedAt', { unique: false });
+            }
+            if (!db.objectStoreNames.contains(STORES.RAW_TEMPLATES)) {
+                const templateStore = db.createObjectStore(STORES.RAW_TEMPLATES, { keyPath: 'id' });
+                templateStore.createIndex('name', 'name', { unique: false });
+            }
+        },
+        4: (db, transaction, STORES) => {
+            // v4 introduced unified store
+            if (!db.objectStoreNames.contains(STORES.UNIFIED_VIDEO_HISTORY)) {
+                const unifiedStore = db.createObjectStore(STORES.UNIFIED_VIDEO_HISTORY, { keyPath: 'imageId' });
+                unifiedStore.createIndex('accountId', 'accountId', { unique: false });
+                unifiedStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+                unifiedStore.createIndex('createdAt', 'createdAt', { unique: false });
+            }
+
+            if (!db.objectStoreNames.contains(STORES.SAVED_PROMPT_SLOTS)) {
+                const slotsStore = db.createObjectStore(STORES.SAVED_PROMPT_SLOTS, { keyPath: 'slotId' });
+                slotsStore.createIndex('active', 'active', { unique: false });
+                slotsStore.createIndex('timestamp', 'timestamp', { unique: false });
+            }
+            if (!db.objectStoreNames.contains(STORES.CUSTOM_DROPDOWNS)) {
+                db.createObjectStore(STORES.CUSTOM_DROPDOWNS, { keyPath: 'category' });
+            }
+            if (!db.objectStoreNames.contains(STORES.CUSTOM_OBJECTS)) {
+                const objectsStore = db.createObjectStore(STORES.CUSTOM_OBJECTS, { keyPath: 'id' });
+                objectsStore.createIndex('timestamp', 'timestamp', { unique: false });
+            }
+            if (!db.objectStoreNames.contains(STORES.CUSTOM_DIALOGUES)) {
+                db.createObjectStore(STORES.CUSTOM_DIALOGUES, { keyPath: 'id' });
+            }
+        },
+        6: (db, transaction, STORES) => {
+            if (!db.objectStoreNames.contains(STORES.UNIFIED_VIDEO_HISTORY)) {
+                const unifiedStore = db.createObjectStore(STORES.UNIFIED_VIDEO_HISTORY, { keyPath: 'imageId' });
+                unifiedStore.createIndex('accountId', 'accountId', { unique: false });
+                unifiedStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+            }
+        },
+        12: (db, transaction, STORES) => {
+            const legacyStores = [STORES.MULTI_GEN_HISTORY, STORES.IMAGE_PROJECTS, STORES.GALLERY_DATA, STORES.PROGRESS_TRACKING];
+            legacyStores.forEach(name => {
+                if (db.objectStoreNames.contains(name)) {
+                    transaction.objectStore(name).clear();
+                }
+            });
+        },
+        13: (db, transaction, STORES) => {
+            if (!db.objectStoreNames.contains(STORES.PROMPTS)) {
+                const ps = db.createObjectStore(STORES.PROMPTS, { keyPath: 'id' });
+                ps.createIndex('type', 'type', { unique: false });
+                ps.createIndex('folder_id', 'folder_id', { unique: false });
+                ps.createIndex('is_pinned', 'is_pinned', { unique: false });
+                ps.createIndex('updated_at', 'updated_at', { unique: false });
+            }
+            if (!db.objectStoreNames.contains(STORES.PROMPT_VERSIONS)) {
+                const pvs = db.createObjectStore(STORES.PROMPT_VERSIONS, { keyPath: 'id' });
+                pvs.createIndex('prompt_id', 'prompt_id', { unique: false });
+                pvs.createIndex('version_num', 'version_num', { unique: false });
+            }
+            if (!db.objectStoreNames.contains(STORES.FOLDERS)) {
+                const fs = db.createObjectStore(STORES.FOLDERS, { keyPath: 'id' });
+                fs.createIndex('parent_id', 'parent_id', { unique: false });
+            }
+            if (!db.objectStoreNames.contains(STORES.PROMPT_TAGS)) {
+                const ts = db.createObjectStore(STORES.PROMPT_TAGS, { keyPath: 'id' });
+                ts.createIndex('name', 'name', { unique: true });
+            }
+            if (!db.objectStoreNames.contains(STORES.USAGE_LOG)) {
+                const uls = db.createObjectStore(STORES.USAGE_LOG, { keyPath: 'id' });
+                uls.createIndex('prompt_id', 'prompt_id', { unique: false });
+                uls.createIndex('dispatched_at', 'dispatched_at', { unique: false });
+            }
+            if (!db.objectStoreNames.contains(STORES.RECENTS)) {
+                const rs = db.createObjectStore(STORES.RECENTS, { keyPath: 'id' });
+                rs.createIndex('dispatched_at', 'dispatched_at', { unique: false });
+            }
+        },
+        16: (db, transaction, STORES) => {
+            if (!db.objectStoreNames.contains(STORES.CHUNKS)) db.createObjectStore(STORES.CHUNKS, { keyPath: 'id' });
+            if (!db.objectStoreNames.contains(STORES.SWAP_RULES)) db.createObjectStore(STORES.SWAP_RULES, { keyPath: 'id' });
+        },
+        17: (db, transaction, STORES) => {
+            if (!db.objectStoreNames.contains(STORES.PARENT_INDEX)) {
+                const pi = db.createObjectStore(STORES.PARENT_INDEX, { keyPath: 'childId' });
+                pi.createIndex('rootId', 'rootId', { unique: false });
+            }
+        },
+        18: (db, transaction, STORES) => {
+            // v18 placeholder for specific FTS or Omnibox stores if needed
+            // Currently using unified store indexes, but dedicated keyword stores are better for performance
+            if (!db.objectStoreNames.contains('fts_index')) {
+                const fts = db.createObjectStore('fts_index', { keyPath: 'key' });
+                fts.createIndex('type', 'type', { unique: false }); // 'prompt' or 'history'
+                console.log('[GVP IndexedDB] Created fts_index store (v18)');
+            }
+        },
+        19: (db, transaction, STORES) => {
+            const unifiedStore = transaction.objectStore(STORES.UNIFIED_VIDEO_HISTORY);
+
+            // Add lowercase indexes for performant search
+            if (!unifiedStore.indexNames.contains('prompt_lc')) {
+                unifiedStore.createIndex('prompt_lc', 'prompt_lc', { unique: false });
+            }
+            if (!unifiedStore.indexNames.contains('customName_lc')) {
+                unifiedStore.createIndex('customName_lc', 'customName_lc', { unique: false });
+            }
+            if (!unifiedStore.indexNames.contains('imageId_lc')) {
+                unifiedStore.createIndex('imageId_lc', 'imageId_lc', { unique: false });
+            }
+            console.log('[GVP IndexedDB] Created lowercase search indexes (v19)');
+        }
+    };
 
     /**
      * Check if migration from chrome.storage has been completed
@@ -480,15 +351,7 @@ window.IndexedDBManager = class IndexedDBManager {
         }
     }
 
-    /**
-     * Update or insert a single multi-gen history entry
-     * REDIRECTED TO UNIFIED STORE (v7)
-     * @param {Object} entry - The entry to save
-     */
-    async upsertMultiGenEntry(entry) {
-        // Redirect to unified store
-        return this.saveUnifiedEntry(entry);
-    }
+
 
     /**
      * Save multi-gen history snapshot
@@ -1240,7 +1103,16 @@ window.IndexedDBManager = class IndexedDBManager {
                 entry.updatedAt = new Date().toISOString();
             }
 
+            // Populate lowercase fields for optimized search
+            entry.prompt_lc = (entry.prompt || '').toLowerCase();
+            entry.customName_lc = (entry.customName || '').toLowerCase();
+            entry.imageId_lc = (entry.imageId || '').toLowerCase();
+
             await this._putData(store, entry);
+
+            // Multi-tab sync
+            this._broadcastChange('UPDATE', this.STORES.UNIFIED_VIDEO_HISTORY, { imageId: entry.imageId });
+
             console.log(`[GVP IndexedDB] 💾 SAVED to UNIFIED_VIDEO_HISTORY: ${entry.imageId}`, {
                 accountId: entry.accountId,
                 timestamp: entry.updatedAt,
@@ -1273,16 +1145,24 @@ window.IndexedDBManager = class IndexedDBManager {
 
             let savedCount = 0;
             for (const entry of entries) {
-                if (entry.updatedAt) {
+                if (!entry.updatedAt) {
                     entry.updatedAt = new Date().toISOString();
                 }
-                store.put(entry);
+
+                // Populate lowercase fields for optimized search
+                entry.prompt_lc = (entry.prompt || '').toLowerCase();
+                entry.customName_lc = (entry.customName || '').toLowerCase();
+                entry.imageId_lc = (entry.imageId || '').toLowerCase();
+
+                await this._putData(store, entry);
                 savedCount++;
             }
 
             return new Promise((resolve, reject) => {
                 transaction.oncomplete = () => {
                     console.log(`[GVP IndexedDB] 💾 BATCH SAVED ${savedCount} entries to UNIFIED_VIDEO_HISTORY`);
+                    // Multi-tab sync
+                    this._broadcastChange('BATCH_UPDATE', this.STORES.UNIFIED_VIDEO_HISTORY);
                     resolve(true);
                 };
                 transaction.onerror = () => reject(transaction.error);
@@ -1428,7 +1308,8 @@ window.IndexedDBManager = class IndexedDBManager {
         }
 
         try {
-            const entries = await this.getAllUnifiedEntries(accountId);
+            // Use getAllUnifiedEntries(accountId, 0) for an uncapped read to ensure we delete everything
+            const entries = await this.getAllUnifiedEntries(accountId, 0);
             const transaction = this.db.transaction([this.STORES.UNIFIED_VIDEO_HISTORY], 'readwrite');
             const store = transaction.objectStore(this.STORES.UNIFIED_VIDEO_HISTORY);
 
@@ -1437,6 +1318,14 @@ window.IndexedDBManager = class IndexedDBManager {
             }
 
             console.log(`[GVP IndexedDB] ✅ Cleared ${entries.length} unified entries for account ${accountId}`);
+
+            // Multi-tab sync: Only broadcast CLEAR if we actually processed the full set
+            // (Since we used offset 0, this is definitive)
+            this._broadcastChange('CLEAR', this.STORES.UNIFIED_VIDEO_HISTORY, {
+                accountId,
+                count: entries.length
+            });
+
             return true;
         } catch (error) {
             console.error('[GVP IndexedDB] ❌ Failed to clear unified history:', error);
@@ -2603,7 +2492,11 @@ window.IndexedDBManager = class IndexedDBManager {
             const tx = this.db.transaction([storeName], 'readwrite');
             return await new Promise((resolve, reject) => {
                 const request = tx.objectStore(storeName).put(item);
-                request.onsuccess = () => resolve(true);
+                request.onsuccess = () => {
+                    // Multi-tab sync
+                    this._broadcastChange('UPDATE', storeName, item);
+                    resolve(true);
+                };
                 request.onerror = () => reject(request.error);
             });
         } catch (error) {
@@ -2632,7 +2525,11 @@ window.IndexedDBManager = class IndexedDBManager {
             const tx = this.db.transaction([storeName], 'readwrite');
             return await new Promise((resolve, reject) => {
                 const request = tx.objectStore(storeName).delete(key);
-                request.onsuccess = () => resolve(true);
+                request.onsuccess = () => {
+                    // Multi-tab sync
+                    this._broadcastChange('DELETE', storeName, { key });
+                    resolve(true);
+                };
                 request.onerror = () => reject(request.error);
             });
         } catch (error) {
@@ -2828,5 +2725,89 @@ window.IndexedDBManager = class IndexedDBManager {
         }
     }
 
-};
+    /**
+     * Search unified history by query string (for Omnibox)
+     * @param {string} query 
+     * @returns {Promise<Array>}
+     */
+    async searchUnifiedHistory(query) {
+        if (!this.initialized || !query) return [];
+        const q = query.toLowerCase();
 
+        try {
+            const results = [];
+            const transaction = this.db.transaction([this.STORES.UNIFIED_VIDEO_HISTORY], 'readonly');
+            const store = transaction.objectStore(this.STORES.UNIFIED_VIDEO_HISTORY);
+
+            // We use a cursor over the unified store. 
+            // For a truly performant Omnibox search, we scan and stop at 10 matches.
+            return await new Promise((resolve) => {
+                const request = store.openCursor();
+                request.onsuccess = (event) => {
+                    const cursor = event.target.result;
+                    if (!cursor || results.length >= 10) {
+                        resolve(results);
+                        return;
+                    }
+
+                    const entry = cursor.value;
+                    const matches =
+                        (entry.prompt_lc && entry.prompt_lc.includes(q)) ||
+                        (entry.customName_lc && entry.customName_lc.includes(q)) ||
+                        (entry.imageId_lc && entry.imageId_lc.includes(q));
+
+                    if (matches) {
+                        results.push(entry);
+                    }
+                    cursor.continue();
+                };
+                request.onerror = () => resolve([]);
+            });
+        } catch (error) {
+            console.error('[GVP IndexedDB] Search failed:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Generate a diagnostic report of the database state
+     * @returns {Promise<Object>}
+     */
+    async getDatabaseReport() {
+        if (!this.initialized) return { error: 'Not initialized' };
+
+        const report = {
+            timestamp: new Date().toISOString(),
+            version: this.dbVersion,
+            stores: {},
+            totalEntries: 0,
+            storageEstimate: null,
+            accounts: {}
+        };
+
+        try {
+            const stats = await this.getStorageStats();
+            report.stores = stats;
+            report.totalEntries = Object.values(stats).reduce((sum, s) => sum + s.count, 0);
+
+            if (navigator.storage && navigator.storage.estimate) {
+                report.storageEstimate = await navigator.storage.estimate();
+            }
+
+            // Get account distribution from Unified History
+            const history = await this.getAllUnifiedEntriesGlobal();
+            const accountDist = {};
+            history.forEach(entry => {
+                const aid = entry.accountId || 'unknown';
+                accountDist[aid] = (accountDist[aid] || 0) + 1;
+            });
+            report.accounts = accountDist;
+
+            return report;
+        } catch (error) {
+            console.error('[GVP IndexedDB] Diagnostic report failed:', error);
+            return { error: error.message };
+        }
+    }
+
+};

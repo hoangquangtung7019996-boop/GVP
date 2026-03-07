@@ -81,3 +81,31 @@ chrome.commands.onCommand.addListener(function (command) {
         });
     }
 });
+// Handle Omnibox search (keyword: gvp)
+chrome.omnibox.onInputChanged.addListener(function (text, suggest) {
+    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+        if (tabs[0] && tabs[0].url && tabs[0].url.includes('grok.com')) {
+            chrome.tabs.sendMessage(tabs[0].id, { action: 'gvpOmniboxSearch', query: text }, function (response) {
+                if (chrome.runtime.lastError || !response || !response.results) {
+                    suggest([]);
+                    return;
+                }
+
+                const suggestions = response.results.map(item => ({
+                    content: `https://grok.com/imagine/post/${item.parentPostId || item.imageId}`,
+                    description: `<match>${item.customName || 'Video'}</match> - <dim>${(item.prompt || '').substring(0, 50)}...</dim>`
+                }));
+                suggest(suggestions);
+            });
+        }
+    });
+});
+
+chrome.omnibox.onInputEntered.addListener(function (text) {
+    if (text.startsWith('http')) {
+        chrome.tabs.update({ url: text });
+    } else {
+        // If it's not a URL, it's a raw query - open grok search or just the main page
+        chrome.tabs.update({ url: `https://grok.com/` });
+    }
+});

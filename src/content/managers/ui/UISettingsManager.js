@@ -279,6 +279,41 @@ window.UISettingsManager = class UISettingsManager {
 
         backupBtnGroup.appendChild(exportBtn);
         backupBtnGroup.appendChild(importBtn);
+
+        // Diagnostic Report Button (v1.46.15)
+        const diagnosticBtn = document.createElement('button');
+        diagnosticBtn.className = 'gvp-button';
+        diagnosticBtn.style.marginTop = '8px';
+        diagnosticBtn.style.backgroundColor = '#2c3e50';
+        diagnosticBtn.textContent = '📋 Copy Diagnostic Report';
+        diagnosticBtn.addEventListener('click', async () => {
+            const originalText = diagnosticBtn.textContent;
+            diagnosticBtn.disabled = true;
+            diagnosticBtn.textContent = 'Generating...';
+
+            try {
+                const idb = window.idbManager || window.IndexedDBManager?.instance;
+                if (!idb) throw new Error('IndexedDBManager not found');
+
+                const report = await idb.getDatabaseReport();
+                const reportStr = JSON.stringify(report, null, 2);
+
+                await navigator.clipboard.writeText(reportStr);
+
+                diagnosticBtn.textContent = '✅ Copied to Clipboard!';
+                setTimeout(() => {
+                    diagnosticBtn.textContent = originalText;
+                }, 3000);
+            } catch (error) {
+                console.error('[GVP] Diagnostic report failed:', error);
+                alert('Failed to generate report: ' + error.message);
+                diagnosticBtn.textContent = originalText;
+            } finally {
+                diagnosticBtn.disabled = false;
+            }
+        });
+        backupBtnGroup.appendChild(diagnosticBtn);
+
         content.appendChild(backupBtnGroup);
         content.appendChild(fileInput);
 
