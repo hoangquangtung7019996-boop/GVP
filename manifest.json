@@ -2,7 +2,7 @@
     "manifest_version": 3,
     "default_locale": "en",
     "name": "Grok Video Prompter",
-    "version": "1.46.15",
+    "version": "1.46.16",
     "description": "Injects a prompt textbox, generates video ideas, and streams results directly into Grok UI.",
     "omnibox": {
         "keyword": "gvp"

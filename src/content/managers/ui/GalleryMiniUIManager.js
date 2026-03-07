@@ -26,8 +26,10 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
         this._onKeyDown = this._handleKeyDown.bind(this);
         this._onOutsideClick = this._handleOutsideClick.bind(this);
         this._onIdbSync = this._onIdbSync.bind(this);
+        this._onVidGenBeacon = this._handleVidGenBeacon.bind(this);
 
         window.addEventListener('gvp:idb-sync', this._onIdbSync);
+        window.addEventListener('gvp:vidgen-beacon', this._onVidGenBeacon);
 
         console.log('[GVP GalleryMiniUIManager] ✅ Constructor — shadowRoot via uiManager:', uiManager?.shadowRoot ? '✅ present' : '❌ MISSING');
         window.Logger.info('GalleryMiniUIManager', 'Initialized');
@@ -96,7 +98,41 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
     destroy() {
         this.close();
         window.removeEventListener('gvp:idb-sync', this._onIdbSync);
+        window.removeEventListener('gvp:vidgen-beacon', this._onVidGenBeacon);
         window.Logger.info('GalleryMiniUIManager', 'Destroyed');
+    }
+
+    /**
+     * React to real-time progress/completion beacons
+     * v1.47: Added to support immediate auto-updates in Mini UI
+     */
+    async _handleVidGenBeacon(e) {
+        if (!this.isOpen || !this.currentImageId) return;
+
+        const { imageId, parentPostId, progress } = e.detail || {};
+        const affectedId = parentPostId || imageId;
+
+        if (!affectedId) return;
+
+        // Same relevance logic as _onIdbSync
+        const isSelf = affectedId === this.currentImageId;
+        const isLineage = this._currentAbsoluteRootId && affectedId === this._currentAbsoluteRootId;
+
+        if (isSelf || isLineage) {
+            // ONLY refresh the full list on 100% or significant progress steps to avoid too many API calls
+            // Since we already have the IDB sync for state changes, this purely provides UI feedback.
+            if (progress === 100) {
+                window.Logger.debug('GalleryMiniUIManager', `🚀 Terminal beacon for ${affectedId} — refreshing rails`);
+                try {
+                    const refreshed = await this._resolveData(this.currentImageId);
+                    if (this._rootEl && this.isOpen) {
+                        this._populateRails(this._rootEl, refreshed);
+                    }
+                } catch (err) {
+                    window.Logger.error('GalleryMiniUIManager', 'Beacon refresh failed', err);
+                }
+            }
+        }
     }
 
     /**

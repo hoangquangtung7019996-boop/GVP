@@ -2678,12 +2678,18 @@ window.NetworkInterceptor = class NetworkInterceptor {
                 }
             }
 
-            const chunkProgress = this._coerceProgressValue(
-                videoData.progress ?? videoData.progressValue ?? videoData.percent ?? videoData.progressPercent
-            );
-
             if (chunkProgress !== null) {
                 console.log(`[GVP] 📊 Progress: ${chunkProgress}% (videoId: ${videoData.videoId})`);
+                
+                // Dispatch beacon for progress updates
+                this._dispatchVidGenBeacon({
+                    videoId: videoData.videoId,
+                    imageId: meta.imageId || meta.multiGen?.imageId,
+                    parentPostId: videoData.parentPostId || meta.parentPostId,
+                    progress: chunkProgress,
+                    moderated: !!videoData.moderated,
+                    thumbnailUrl: videoData.thumbnailUrl
+                });
             }
 
             // CRITICAL: Only extract at progress=100
@@ -2695,6 +2701,17 @@ window.NetworkInterceptor = class NetworkInterceptor {
                 if (videoData.moderated) {
                     console.log('[GVP] ⚠️ Content moderated');
                 }
+                
+                // Dispatch terminal beacon
+                this._dispatchVidGenBeacon({
+                    videoId: videoData.videoId,
+                    imageId: meta.imageId || meta.multiGen?.imageId,
+                    parentPostId: videoData.parentPostId || meta.parentPostId,
+                    progress: 100,
+                    moderated: !!videoData.moderated,
+                    videoUrl: videoData.videoUrl,
+                    thumbnailUrl: videoData.thumbnailUrl
+                });
 
                 if (videoData.videoPrompt && videoData.videoPrompt.trim()) {
                     console.log('[GVP][Interceptor] 📝 videoPrompt length:', videoData.videoPrompt.length);
@@ -2939,6 +2956,16 @@ window.NetworkInterceptor = class NetworkInterceptor {
             if (normalizedProgress !== null) {
                 progressValues.push(normalizedProgress);
                 console.log(`[GVP] 📊 Progress: ${normalizedProgress}%`);
+
+                // Dispatch beacon for progress updates (Bridge context)
+                this._dispatchVidGenBeacon({
+                    videoId: videoId || videoResponse.videoId || assetId,
+                    imageId: resolvedImageId || parentPostId,
+                    parentPostId: parentPostId || videoResponse.parentPostId,
+                    progress: normalizedProgress,
+                    moderated: wasModerated || !!videoResponse.moderated,
+                    thumbnailUrl: videoResponse.thumbnailUrl
+                });
             }
 
             const { videoPrompt } = videoResponse;
@@ -3559,6 +3586,33 @@ window.NetworkInterceptor = class NetworkInterceptor {
      * @param {number} limit The maximum number of items to fetch, defaults to 40
      * @returns {Promise<boolean>} Success status
      */
+    /**
+     * Dispatch a vidgen-beacon event for real-time progress tracking
+     * v1.47: Restored missing dispatch logic
+     * @param {Object} data - { videoId, imageId, parentPostId, progress, moderated, videoUrl, thumbnailUrl }
+     */
+    _dispatchVidGenBeacon(data) {
+        if (!data || (!data.videoId && !data.assetId)) return;
+
+        const detail = {
+            videoId: data.videoId || data.assetId,
+            imageId: data.imageId || data.parentPostId || null,
+            parentPostId: data.parentPostId || data.imageId || null,
+            progress: data.progress ?? 0,
+            moderated: !!data.moderated,
+            thumbnailUrl: data.thumbnailUrl || null,
+            videoUrl: data.videoUrl || null
+        };
+
+        if (window.Logger) {
+            window.Logger.debug('NetworkInterceptor', '📡 Dispatching gvp:vidgen-beacon', detail);
+        } else {
+            console.debug('[GVP] 📡 Dispatching gvp:vidgen-beacon', detail);
+        }
+
+        window.dispatchEvent(new CustomEvent('gvp:vidgen-beacon', { detail }));
+    }
+
     async triggerBulkGallerySync(accountId, source = 'gallery', limit = 40) {
         if (!accountId) {
             console.error('[GVP][Interceptor] Cannot trigger bulk sync without an accountId.');
