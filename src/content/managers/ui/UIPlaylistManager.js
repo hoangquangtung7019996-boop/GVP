@@ -2065,6 +2065,10 @@ window.UIPlaylistManager = class UIPlaylistManager {
             this.playerModal.remove();
             this.playerModal = null;
         }
+        if (this._thumbObserver) {
+            this._thumbObserver.disconnect();
+            this._thumbObserver = null;
+        }
         window.removeEventListener('gvp:idb-late-init', this._boundHandleLateInit);
         window.removeEventListener('gvp:vidgen-beacon', this._boundHandleVidGenBeacon);
         window.Logger.info('UIPlaylist', 'Destroyed');

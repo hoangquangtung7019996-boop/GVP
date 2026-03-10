@@ -1,44 +1,37 @@
-# GVP Repository - Strict Whitelist Ignore File
-# Only include files necessary for the extension to function.
+# GVP Repository - Strict Whitelist
+# Ignores everything by default, whitelists only extension core.
+# .agent/, session backups, KI tooling, and all local data are excluded by default via *.
 
-# 1. Ignore everything by default
+# 1. Ignore everything
 *
 .*
 
-# 2. Allow Git configuration
+# 2. Allow Git and repo meta
 !.gitignore
 !README.md
 
-# 3. Allow Extension Core
+# 3. Allow extension core only
 !manifest.json
 !src/
+!src/**/
 !src/**
 !public/
+!public/**/
 !public/**
 !icons/
+!icons/**/
 !icons/**
 !_locales/
+!_locales/**/
 !_locales/**
 
-# 4. Explicitly exclude any JSON/HTML bloat even if in allowed folders (safety check)
+# 4. Safety exclusions within allowed folders
 src/**/*.json
-public/**/*.json
 src/**/*.html
+public/**/*.json
 public/**/*.html
 
-# Ignore specific icon/config JSONs to keep the repo clean. Remove '!' prefix below to re-allow after verification if needed.
-HANDOVER.md
-icons/Extendedvideo-get.json
-icons/gvp_chunks_Export.json
-icons/GVP_ExportSettingsexportOLD.json
-icons/gvp_promplibraryexport.json
-icons/gvp_word_swapsexport.json
-icons/gvp-indexeddb-export.json
-icons/imgsucess.json
-icons/list-extendedvideo versin.json
-icons/list.json
-icons/payloads.txt
-icons/Queue-modeExport.json
-icons/rootimage-get.json
-icons/VidModeratred.json
-icons/VidSucess.json
+# 5. Explicit icon folder data file exclusions
+# Add a '!' prefix before a file to re-allow an ignored pattern after verification
+icons/*.json
+icons/*.txt

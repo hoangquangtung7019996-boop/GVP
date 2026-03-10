@@ -144,10 +144,17 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
      */
     async _onIdbLateInit() {
         if (!this.isOpen || !this.currentImageId || !this._rootEl) return;
+
+        const expectedId = this.currentImageId;
+        const expectedRoot = this._rootEl;
+
         window.Logger.info('GalleryMiniUIManager', '📥 IDB late-init detected, refreshing rails...');
         try {
-            const data = await this._resolveData(this.currentImageId);
-            this._populateRails(this._rootEl, data);
+            const data = await this._resolveData(expectedId);
+
+            if (this.isOpen && this.currentImageId === expectedId && this._rootEl === expectedRoot) {
+                this._populateRails(expectedRoot, data);
+            }
         } catch (err) {
             window.Logger.error('GalleryMiniUIManager', 'Error refreshing rails on late-init', err);
         }

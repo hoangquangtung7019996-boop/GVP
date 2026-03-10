@@ -1432,7 +1432,7 @@ window.UIVideoQueueManager = class UIVideoQueueManager {
 
             if (editedImages.length === 0) {
                 window.Logger.info('Queue', '❌ No edits found for:', parentImageId);
-                return;
+                return false;
             }
 
             let addedCount = 0;

@@ -11,9 +11,13 @@ window.StateManager = class StateManager {
 
         // Listen for late IndexedDB initialization (v1.47 emergency fallback support)
         window.addEventListener('gvp:idb-late-init', async () => {
-            window.Logger.info('StateManager', '📥 Late IndexedDB initialization detected. Reloading data...');
-            await this._loadSettings();
-            window.Logger.info('StateManager', '✅ Late data load complete.');
+            try {
+                window.Logger.info('StateManager', '📥 Late IndexedDB initialization detected. Reloading data...');
+                await this._loadSettings();
+                window.Logger.info('StateManager', '✅ Late data load complete.');
+            } catch (err) {
+                window.Logger.error('StateManager', '❌ Error during late IndexedDB initialization', err);
+            }
         });
 
         // Track 30-second timeouts for pending generations

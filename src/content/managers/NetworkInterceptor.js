@@ -2964,7 +2964,8 @@ window.NetworkInterceptor = class NetworkInterceptor {
                     parentPostId: parentPostId || videoResponse.parentPostId,
                     progress: normalizedProgress,
                     moderated: wasModerated || !!videoResponse.moderated,
-                    thumbnailUrl: videoResponse.thumbnailUrl
+                    thumbnailUrl: videoResponse.thumbnailUrl,
+                    videoUrl: videoResponse.videoUrl || null
                 });
             }
 
@@ -3095,10 +3096,6 @@ window.NetworkInterceptor = class NetworkInterceptor {
 
             // if (looksLikeJson) {
             const stateAccountId = this.stateManager?.getState()?.account?.id || null;
-            const modelName = payload?.message?.modelName
-                || payload?.message?.model_name
-                || null;
-
             const historyManager = window.gvpImageProjectManager;
             if (historyManager) {
                 let historyAccountId = accountId || stateAccountId || null;

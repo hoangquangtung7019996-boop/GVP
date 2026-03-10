@@ -126,19 +126,21 @@ window.IndexedDBManager = class IndexedDBManager {
 
             this.db = await this._openDatabase();
 
+            // Mark DB as initialized right after opening to allow migrations to use helpers
+            this.initialized = true;
+
             // Perform post-open initialization logic (migrations, etc.)
             const success = await this._postOpenInit(this.db);
             if (!success) {
                 window.Logger?.error('IndexedDB', '❌ Post-open init failed during initialize()');
                 if (this.db) {
-                    this.db.close();
+                    if (typeof this.db.close === 'function') this.db.close();
                     this.db = null;
                 }
                 this.initialized = false;
                 return false;
             }
 
-            this.initialized = true;
             console.log('[GVP IndexedDB] ✅ Database initialized successfully');
             return true;
         } catch (error) {
