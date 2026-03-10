@@ -72,14 +72,19 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
 
         // Resolve real data async
         try {
-            const data = await this._resolveData(imageId);
-            console.log('[GVP GalleryMiniUIManager] _resolveData result:', data);
-            if (!this._rootEl) return;   // closed while awaiting
-            this._populateRails(root, data);
+            const result = await this._resolveData(imageId);
+            console.log('[GVP GalleryMiniUIManager] _resolveData result:', result);
+            // Verify expected view before updating UI and mutating state
+            if (this.isOpen && this.currentImageId === imageId && this._rootEl === root) {
+                this._currentAbsoluteRootId = result.absoluteRootId;
+                this._populateRails(root, result.data);
+            }
         } catch (err) {
             console.error('[GVP GalleryMiniUIManager] Data resolution error:', err);
             window.Logger.error('GalleryMiniUIManager', 'Data resolution error', err);
-            this._populateRails(root, null);
+            if (this.isOpen && this.currentImageId === imageId && this._rootEl === root) {
+                this._populateRails(root, null);
+            }
         }
     }
 
@@ -128,8 +133,9 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
                 window.Logger.debug('GalleryMiniUIManager', `🚀 Terminal beacon for ${affectedId} — refreshing rails`);
                 try {
                     const refreshed = await this._resolveData(this.currentImageId);
-                    if (this._rootEl && this.isOpen) {
-                        this._populateRails(this._rootEl, refreshed);
+                    if (this._rootEl && this.isOpen && this.currentImageId === affectedId) {
+                        this._currentAbsoluteRootId = refreshed.absoluteRootId;
+                        this._populateRails(this._rootEl, refreshed.data);
                     }
                 } catch (err) {
                     window.Logger.error('GalleryMiniUIManager', 'Beacon refresh failed', err);
@@ -150,10 +156,11 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
 
         window.Logger.info('GalleryMiniUIManager', '📥 IDB late-init detected, refreshing rails...');
         try {
-            const data = await this._resolveData(expectedId);
+            const result = await this._resolveData(expectedId);
 
             if (this.isOpen && this.currentImageId === expectedId && this._rootEl === expectedRoot) {
-                this._populateRails(expectedRoot, data);
+                this._currentAbsoluteRootId = result.absoluteRootId;
+                this._populateRails(expectedRoot, result.data);
             }
         } catch (err) {
             window.Logger.error('GalleryMiniUIManager', 'Error refreshing rails on late-init', err);
@@ -188,8 +195,11 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
 
             try {
                 const refreshed = await this._resolveData(this.currentImageId);
-                if (this._rootEl && this.isOpen) {
-                    this._populateRails(this._rootEl, refreshed);
+                // The relevant properties on this object are .data and .absoluteRootId
+                // If it is closed or switched midway, ignore
+                if (this._rootEl && this.isOpen && this.currentImageId === affectedId) {
+                    this._currentAbsoluteRootId = refreshed.absoluteRootId;
+                    this._populateRails(this._rootEl, refreshed.data);
                 }
             } catch (err) {
                 window.Logger.error('GalleryMiniUIManager', 'Sync refresh failed', err);
@@ -252,7 +262,6 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
 
         // Step 1: Find the absolute root ID via IDB chain-chasing only.
         const absoluteRootId = await this._getAbsoluteRootId(imageId, idb);
-        this._currentAbsoluteRootId = absoluteRootId; // Cache for lineage-targeted sync checks
 
         // Step 2: Always call the API for the root post to get the FULL sibling set.
         // /post/get returns images[] including ALL edit generations (root + direct
@@ -267,7 +276,7 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
             // ── Write-back: populate parentIndex for ALL children found ──
             this._writeBackParentPairs(idb, fetched);
             console.log(`[GVP GalleryMiniUIManager] _resolveData final entry (API):`, fetched);
-            return fetched;
+            return { absoluteRootId, data: fetched };
         }
 
         // Step 3: API failed — fall back to whatever IDB had (partial but better than nothing)
@@ -284,16 +293,19 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
                 });
                 console.log(`[GVP GalleryMiniUIManager] _resolveData final entry (IDB fallback):`, entry);
                 return {
-                    ...entry,
-                    ...(entry.editedImages ? { editedImages: patched } : { images: patched }),
+                    absoluteRootId,
+                    data: {
+                        ...entry,
+                        ...(entry.editedImages ? { editedImages: patched } : { images: patched }),
+                    }
                 };
             }
             console.log(`[GVP GalleryMiniUIManager] _resolveData final entry (IDB fallback):`, entry);
-            return entry;
+            return { absoluteRootId, data: entry };
         }
 
         console.log(`[GVP GalleryMiniUIManager] _resolveData: no data found for root=${absoluteRootId.substring(0, 8)}…`);
-        return null;
+        return { absoluteRootId, data: null };
     }
 
     async _fetchFromApi(imageId) {

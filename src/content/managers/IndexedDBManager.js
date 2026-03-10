@@ -12,6 +12,7 @@ window.IndexedDBManager = class IndexedDBManager {
         this.dbVersion = 19; // v19: Optimized Omnibox search via lowercase indexes
         this.db = null;
         this.initialized = false;
+        this._initializingPromise = null;
         this.migrationComplete = false;
 
         // Multi-tab synchronization
@@ -121,33 +122,46 @@ window.IndexedDBManager = class IndexedDBManager {
             return true;
         }
 
-        try {
-            console.log('[GVP IndexedDB] Initializing database...');
+        if (this._initializingPromise) {
+            return this._initializingPromise;
+        }
 
-            this.db = await this._openDatabase();
+        this._initializingPromise = (async () => {
+            try {
+                console.log('[GVP IndexedDB] Initializing database...');
 
-            // Mark DB as initialized right after opening to allow migrations to use helpers
-            this.initialized = true;
+                this.db = await this._openDatabase();
 
-            // Perform post-open initialization logic (migrations, etc.)
-            const success = await this._postOpenInit(this.db);
-            if (!success) {
-                window.Logger?.error('IndexedDB', '❌ Post-open init failed during initialize()');
+                // Perform post-open initialization logic (migrations, etc.)
+                const success = await this._postOpenInit(this.db);
+                if (!success) {
+                    window.Logger?.error('IndexedDB', '❌ Post-open init failed during initialize()');
+                    if (this.db) {
+                        if (typeof this.db.close === 'function') this.db.close();
+                        this.db = null;
+                    }
+                    this.initialized = false;
+                    return false;
+                }
+
+                // Mark DB as fully initialized ONLY AFTER post-open init succeeds
+                this.initialized = true;
+                console.log('[GVP IndexedDB] ✅ Database initialized successfully');
+                return true;
+            } catch (error) {
+                console.error('[GVP IndexedDB] ❌ Initialization failed:', error);
+                this.initialized = false;
                 if (this.db) {
                     if (typeof this.db.close === 'function') this.db.close();
                     this.db = null;
                 }
-                this.initialized = false;
                 return false;
+            } finally {
+                this._initializingPromise = null;
             }
+        })();
 
-            console.log('[GVP IndexedDB] ✅ Database initialized successfully');
-            return true;
-        } catch (error) {
-            console.error('[GVP IndexedDB] ❌ Initialization failed:', error);
-            this.initialized = false;
-            return false;
-        }
+        return this._initializingPromise;
     }
 
     /**
