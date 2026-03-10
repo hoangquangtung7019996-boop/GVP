@@ -47,6 +47,21 @@ window.UIPlaylistManager = class UIPlaylistManager {
         // Sorting
         this.sortBy = 'date'; // 'date', 'mode', 'liked'
         this.sortOrder = 'desc'; // 'asc', 'desc'
+
+        // Late-init reactivity: Re-build playlist if IDB becomes ready
+        this._boundHandleLateInit = () => {
+            window.Logger.info('UIPlaylist', '📥 Late IDB init detected, refreshing playlist...');
+            const accountId = this.stateManager?.state?.multiGenHistory?.activeAccountId;
+            if (accountId) {
+                this.playlist = this.buildPlaylistFromApi({});
+                if (this.playerModal && this.playerModal.parentElement) {
+                    window.Logger.info('UIPlaylist', 'Playlist modal open, rebuilding list items');
+                    this._updatePlayerUI();
+                    this._renderPlaylist({ preserveScroll: true });
+                }
+            }
+        };
+        window.addEventListener('gvp:idb-late-init', this._boundHandleLateInit);
     }
 
     /**
@@ -2021,14 +2036,13 @@ window.UIPlaylistManager = class UIPlaylistManager {
         }
     }
 
-    /**
-     * Clean up and remove player
-     */
     destroy() {
         if (this.playerModal) {
             this.playerModal.remove();
             this.playerModal = null;
         }
+        window.removeEventListener('gvp:idb-late-init', this._boundHandleLateInit);
+        window.Logger.info('UIPlaylist', 'Destroyed');
     }
 };
 

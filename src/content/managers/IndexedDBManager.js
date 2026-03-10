@@ -81,21 +81,11 @@ window.IndexedDBManager = class IndexedDBManager {
     }
 
     /**
-     * Initialize IndexedDB and create object stores
+     * Post-open initialization: migrations, stats, and persistence
+     * @param {IDBDatabase} db 
      */
-    async initialize() {
-        if (this.initialized) {
-            return true;
-        }
-
+    async _postOpenInit(db) {
         try {
-            console.log('[GVP IndexedDB] Initializing database...');
-
-            this.db = await this._openDatabase();
-            this.initialized = true;
-
-            console.log('[GVP IndexedDB] ✅ Database initialized successfully');
-
             // Check if migration needed
             await this._checkMigrationStatus();
 
@@ -107,25 +97,49 @@ window.IndexedDBManager = class IndexedDBManager {
                     console.warn('[GVP IndexedDB] ⚠️ DATABASE IS EMPTY. This may indicate a recent wipe or fresh install.');
                 } else {
                     console.log(`[GVP IndexedDB] 📊 Integrity Check: ${totalEntries} total entries found across ${Object.keys(stats).length} stores.`);
-                    // Log specific important stores
                     console.log(`[GVP IndexedDB] 📝 Prompts: ${stats[this.STORES.SAVED_PROMPT_SLOTS]?.count || 0} | 🎬 History: ${stats[this.STORES.UNIFIED_VIDEO_HISTORY]?.count || 0}`);
                 }
             }
 
-            // Why: Request persistent storage to prevent Chrome from evicting IDB under storage pressure
-            // This is the primary defense against "random IDB wipes" — non-persistent origins can be pruned
-            try {
-                if (navigator.storage && navigator.storage.persist) {
-                    const granted = await navigator.storage.persist();
-                    console.log(`[GVP IndexedDB] 🔒 Storage persistence: ${granted ? 'GRANTED ✅' : 'DENIED ⚠️'}`);
-                    if (!granted) {
-                        console.warn('[GVP IndexedDB] ⚠️ Persistent storage denied — IDB may be evicted under storage pressure.');
-                    }
-                }
-            } catch (persistError) {
-                console.warn('[GVP IndexedDB] ⚠️ Could not request persistent storage:', persistError);
+            // Persistence
+            if (navigator.storage && navigator.storage.persist) {
+                const granted = await navigator.storage.persist();
+                console.log(`[GVP IndexedDB] 🔒 Storage persistence: ${granted ? 'GRANTED ✅' : 'DENIED ⚠️'}`);
             }
+            return true;
+        } catch (error) {
+            console.error('[GVP IndexedDB] ❌ Post-open init failed:', error);
+            return false;
+        }
+    }
 
+    /**
+     * Initialize IndexedDB and create object stores
+     */
+    async initialize() {
+        if (this.initialized) {
+            return true;
+        }
+
+        try {
+            console.log('[GVP IndexedDB] Initializing database...');
+
+            this.db = await this._openDatabase();
+            
+            // Perform post-open initialization logic (migrations, etc.)
+            const success = await this._postOpenInit(this.db);
+            if (!success) {
+                window.Logger?.error('IndexedDB', '❌ Post-open init failed during initialize()');
+                if (this.db) {
+                    this.db.close();
+                    this.db = null;
+                }
+                this.initialized = false;
+                return false;
+            }
+            
+            this.initialized = true;
+            console.log('[GVP IndexedDB] ✅ Database initialized successfully');
             return true;
         } catch (error) {
             console.error('[GVP IndexedDB] ❌ Initialization failed:', error);
@@ -139,10 +153,12 @@ window.IndexedDBManager = class IndexedDBManager {
      */
     _openDatabase() {
         return new Promise((resolve, reject) => {
+            let timedOut = false;
             const timeout = setTimeout(() => {
-                console.warn('[GVP IndexedDB] ⏱️ Open request timed out after 5s. Falling back...');
+                timedOut = true;
+                console.warn('[GVP IndexedDB] ⏱️ Open request timed out after 15s. Falling back to storage while DB continues in background...');
                 reject(new Error('IndexedDB open timed out'));
-            }, 5000);
+            }, 15000);
 
             console.log(`[GVP IndexedDB] Opening database ${this.dbName} v${this.dbVersion}...`);
             const request = indexedDB.open(this.dbName, this.dbVersion);
@@ -154,6 +170,10 @@ window.IndexedDBManager = class IndexedDBManager {
 
             request.onerror = () => {
                 clearTimeout(timeout);
+                if (timedOut) {
+                    console.error('[GVP IndexedDB] ❌ Open request failed after initial timeout:', request.error);
+                    return;
+                }
                 console.error('[GVP IndexedDB] ❌ Open request error:', request.error);
                 reject(request.error || new Error('Unknown IDB error'));
             };
@@ -161,21 +181,45 @@ window.IndexedDBManager = class IndexedDBManager {
             request.onsuccess = () => {
                 clearTimeout(timeout);
                 const db = request.result;
-                db.onversionchange = () => {
-                    console.log('[GVP IndexedDB] 🔄 Version change detected. Closing...');
-                    db.close();
-                    window.location.reload();
-                };
+                
+                // Handle late-success (after fallback already triggered)
+                if (timedOut) {
+                    console.log('[GVP IndexedDB] ✨ Late Success: Database connection established after fallback.');
+                    this.db = db;
+                    
+                    // Critical: Complete the full initialization sequence before dispatching event
+                    this._postOpenInit(db).then((success) => {
+                        if (success) {
+                            this.initialized = true;
+                            this._setupDatabaseHandlers(db);
+                            // Dispatch event so other managers can refresh their data
+                            window.dispatchEvent(new CustomEvent('gvp:idb-late-init', { detail: { db } }));
+                        } else {
+                            window.Logger?.error('IndexedDBManager', '❌ Late post-open init failed (returned false)');
+                            this.initialized = false;
+                        }
+                    }).catch(err => {
+                        window.Logger?.error('IndexedDBManager', '❌ Late post-open init rejected', err);
+                        this.initialized = false;
+                    });
+                    return;
+                }
+
+                this._setupDatabaseHandlers(db);
                 resolve(db);
             };
 
             request.onupgradeneeded = (event) => {
                 console.log(`[GVP IndexedDB] 🛠️ Upgrading schema: v${event.oldVersion} -> v${event.newVersion}`);
+                const startTime = performance.now();
                 const db = event.target.result;
                 const transaction = event.target.transaction;
 
-                transaction.onerror = (err) => console.error('[GVP IndexedDB] ❌ Transaction error:', err);
-                transaction.oncomplete = () => console.log('[GVP IndexedDB] ✅ Migration transaction complete.');
+                transaction.onerror = (err) => console.error('[GVP IndexedDB] ❌ Transaction error during migration:', err);
+                transaction.oncomplete = () => {
+                    const duration = ((performance.now() - startTime) / 1000).toFixed(2);
+                    console.log(`[GVP IndexedDB] ✅ Migration transaction complete. Took ${duration}s.`);
+                };
 
                 for (let v = event.oldVersion + 1; v <= event.newVersion; v++) {
                     if (IndexedDBManager.MIGRATIONS[v]) {
@@ -191,6 +235,24 @@ window.IndexedDBManager = class IndexedDBManager {
         });
     }
 
+    /**
+     * Set up global event handlers for the database connection
+     * @param {IDBDatabase} db 
+     */
+    _setupDatabaseHandlers(db) {
+        if (!db) return;
+
+        db.onversionchange = () => {
+            console.log('[GVP IndexedDB] 🔄 Version change detected from another tab. Closing connection and reloading...');
+            db.close();
+            // Optional: Give a small delay to allow other tabs to finish
+            setTimeout(() => window.location.reload(), 100);
+        };
+
+        db.onerror = (event) => {
+            console.error('[GVP IndexedDB] ❌ Database error:', event.target.error);
+        };
+    }
     /**
      * Migration Registry
      * Functions to apply schema changes for each version
