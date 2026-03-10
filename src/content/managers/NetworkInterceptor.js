@@ -2680,7 +2680,7 @@ window.NetworkInterceptor = class NetworkInterceptor {
 
             if (chunkProgress !== null) {
                 console.log(`[GVP] 📊 Progress: ${chunkProgress}% (videoId: ${videoData.videoId})`);
-                
+
                 // Dispatch beacon for progress updates
                 this._dispatchVidGenBeacon({
                     videoId: videoData.videoId,
@@ -2701,7 +2701,7 @@ window.NetworkInterceptor = class NetworkInterceptor {
                 if (videoData.moderated) {
                     console.log('[GVP] ⚠️ Content moderated');
                 }
-                
+
                 // Dispatch terminal beacon
                 this._dispatchVidGenBeacon({
                     videoId: videoData.videoId,
@@ -3093,67 +3093,67 @@ window.NetworkInterceptor = class NetworkInterceptor {
             const looksLikeJson = trimmedFinal.startsWith('{') || trimmedFinal.startsWith('[');
             await this._parseAndSetPromptData(finalVideoPrompt);
 
-            if (looksLikeJson) {
-                const stateAccountId = this.stateManager?.getState()?.account?.id || null;
-                const modelName = payload?.message?.modelName
-                    || payload?.message?.model_name
-                    || null;
+            // if (looksLikeJson) {
+            const stateAccountId = this.stateManager?.getState()?.account?.id || null;
+            const modelName = payload?.message?.modelName
+                || payload?.message?.model_name
+                || null;
 
-                const historyManager = window.gvpImageProjectManager;
-                if (historyManager) {
-                    let historyAccountId = accountId || stateAccountId || null;
-                    if (!historyAccountId && typeof historyManager.ensureActiveContext === 'function') {
-                        const ctx = historyManager.ensureActiveContext();
-                        if (ctx?.accountId) {
-                            historyAccountId = ctx.accountId;
-                        }
-                    }
-                    const activeHistoryAccount = historyAccountId || 'account:unknown';
-                    if (resolvedImageId) {
-                        try {
-                            historyManager.setActiveAccount(activeHistoryAccount);
-                            historyManager.registerImageProject(
-                                activeHistoryAccount,
-                                resolvedImageId,
-                                {
-                                    type: looksLikeJson ? 'json' : 'raw',
-                                    prompt: trimmedFinal,
-                                    modelName: modelName || null,
-                                    mode: mode || null,
-                                    moderated: wasModerated,
-                                    timestamp: Date.now(),
-                                    source: 'generation',
-                                    videoId: videoId || null,
-                                    videoUrl: videoUrl || null,
-                                    assetId: assetId || null,
-                                    imageReference: imageReference || userMessageUrl || null
-                                },
-                                {
-                                    id: videoId || assetId || `gen_${Date.now()}`,
-                                    timestamp: Date.now(),
-                                    injectedMode: mode || null,
-                                    originalMode: mode || null,
-                                    modelName: modelName || null,
-                                    mediaUrl: videoUrl || null,
-                                    isRefused: wasModerated,
-                                    metadata: {
-                                        parentPostId: parentPostId || null
-                                    }
-                                }
-                            );
-                        } catch (historyError) {
-                            console.error('[GVP] ❌ Failed to record prompt history:', historyError);
-                        }
-                    } else {
-                        console.warn('[GVP] ⚠️ Skipped prompt history logging - unresolved imageId', {
-                            accountId: activeHistoryAccount,
-                            parentPostId,
-                            imageReference,
-                            userMessageUrl
-                        });
+            const historyManager = window.gvpImageProjectManager;
+            if (historyManager) {
+                let historyAccountId = accountId || stateAccountId || null;
+                if (!historyAccountId && typeof historyManager.ensureActiveContext === 'function') {
+                    const ctx = historyManager.ensureActiveContext();
+                    if (ctx?.accountId) {
+                        historyAccountId = ctx.accountId;
                     }
                 }
+                const activeHistoryAccount = historyAccountId || 'account:unknown';
+                if (resolvedImageId) {
+                    try {
+                        historyManager.setActiveAccount(activeHistoryAccount);
+                        historyManager.registerImageProject(
+                            activeHistoryAccount,
+                            resolvedImageId,
+                            {
+                                type: looksLikeJson ? 'json' : 'raw',
+                                prompt: trimmedFinal,
+                                modelName: modelName || null,
+                                mode: mode || null,
+                                moderated: wasModerated,
+                                timestamp: Date.now(),
+                                source: 'generation',
+                                videoId: videoId || null,
+                                videoUrl: videoUrl || null,
+                                assetId: assetId || null,
+                                imageReference: imageReference || userMessageUrl || null
+                            },
+                            {
+                                id: videoId || assetId || `gen_${Date.now()}`,
+                                timestamp: Date.now(),
+                                injectedMode: mode || null,
+                                originalMode: mode || null,
+                                modelName: modelName || null,
+                                mediaUrl: videoUrl || null,
+                                isRefused: wasModerated,
+                                metadata: {
+                                    parentPostId: parentPostId || null
+                                }
+                            }
+                        );
+                    } catch (historyError) {
+                        console.error('[GVP] ❌ Failed to record prompt history:', historyError);
+                    }
+                } else {
+                    console.warn('[GVP] ⚠️ Skipped prompt history logging - unresolved imageId', {
+                        accountId: activeHistoryAccount,
+                        parentPostId,
+                        imageReference,
+                        userMessageUrl
+                    });
+                }
             }
+            // }
 
         } else if (progress100MissingPrompt) {
             console.info(`[GVP] Progress reached 100 in ${source} but no JSON prompt was provided (Moderated=${wasModerated}).`);

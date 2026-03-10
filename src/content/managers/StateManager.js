@@ -118,8 +118,10 @@ window.StateManager = class StateManager {
         };
         // CRITICAL FIX: Do NOT load settings in constructor!
         // Settings must load AFTER IndexedDB initializes
-        this._settingsPromise = null; // Will be set in initialize()
-        this._settingsLoadPromise = null; // v1.47 FIXED: Shared promise to prevent concurrent loads
+        // _settingsPromise: Cached/ready settings value returned to callers. Set/populated by initialize().
+        this._settingsPromise = null;
+        // _settingsLoadPromise: Shared in-flight promise to prevent concurrent loading. Used internally to deduplicate/await an ongoing fetch.
+        this._settingsLoadPromise = null;
         this._multiGenHistorySaveTimer = null;
         this.MULTI_GEN_LIMITS = Object.freeze({
             maxImages: 5000, // Increased from 36 for IndexedDB support

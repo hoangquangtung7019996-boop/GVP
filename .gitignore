@@ -26,7 +26,7 @@ public/**/*.json
 src/**/*.html
 public/**/*.html
 
-# Re-allow explicit config JSONs if verified later, but for now we keep it lean.
+# Ignore specific icon/config JSONs to keep the repo clean. Remove '!' prefix below to re-allow after verification if needed.
 HANDOVER.md
 icons/Extendedvideo-get.json
 icons/gvp_chunks_Export.json

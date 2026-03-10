@@ -1454,9 +1454,12 @@ window.UIVideoQueueManager = class UIVideoQueueManager {
                 window.Logger.info('Queue', `🖼️ Added ${addedCount} edited versions for:`, parentImageId);
                 this._renderGrid();
                 this._updateStats();
+                return true;
             }
+            return false;
         } catch (error) {
             window.Logger.error('Queue', 'Failed to add edited versions:', error);
+            return false;
         }
     }
 
@@ -2556,13 +2559,16 @@ window.UIVideoQueueManager = class UIVideoQueueManager {
         });
 
         // v1.23.21: If includeEditsMode is ON, also add edited versions
+        let editsAdded = false;
         if (this.includeEditsMode) {
             window.Logger.info('Queue', `🖼️ Include Edits ON - looking for edits of:`, imageId);
-            await this._addEditedVersions(imageId);
+            editsAdded = await this._addEditedVersions(imageId);
         }
 
-        this._renderGrid();
-        this._updateStats();
+        if (!editsAdded) {
+            this._renderGrid();
+            this._updateStats();
+        }
         window.Logger.info('Queue', `📥 Item added via Quick Add: ${imageId} (${hasExistingVideos ? 'has videos' : 'pending'})`);
         return true;
     }

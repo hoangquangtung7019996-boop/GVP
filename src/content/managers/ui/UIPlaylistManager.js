@@ -56,12 +56,36 @@ window.UIPlaylistManager = class UIPlaylistManager {
                 this.playlist = this.buildPlaylistFromApi({});
                 if (this.playerModal && this.playerModal.parentElement) {
                     window.Logger.info('UIPlaylist', 'Playlist modal open, rebuilding list items');
+                    this.currentIndex = Math.min(this.currentIndex, Math.max(0, this.playlist.length - 1));
                     this._updatePlayerUI();
                     this._renderPlaylist({ preserveScroll: true });
+                } else {
+                    this.currentIndex = 0;
                 }
             }
         };
         window.addEventListener('gvp:idb-late-init', this._boundHandleLateInit);
+
+        // React to real-time successful video generations
+        this._boundHandleVidGenBeacon = (e) => {
+            const detail = e?.detail || {};
+            // If beacon reports a 100% finished video that isn't moderated
+            if (detail.progress === 100 && detail.moderated === false && detail.videoUrl) {
+                window.Logger.info('UIPlaylist', '🎬 Real-time video completion detected, refreshing playlist...');
+                const accountId = this.stateManager?.state?.multiGenHistory?.activeAccountId;
+                if (accountId) {
+                    this.playlist = this.buildPlaylistFromApi({});
+                    if (this.playerModal && this.playerModal.parentElement) {
+                        window.Logger.info('UIPlaylist', 'Playlist modal open, rebuilding list items');
+                        // Update current item UI just in case
+                        this._updatePlayerUI();
+                        // Re-render the side list to show the new video while keeping scroll position
+                        this._renderPlaylist({ preserveScroll: true });
+                    }
+                }
+            }
+        };
+        window.addEventListener('gvp:vidgen-beacon', this._boundHandleVidGenBeacon);
     }
 
     /**
@@ -2042,6 +2066,7 @@ window.UIPlaylistManager = class UIPlaylistManager {
             this.playerModal = null;
         }
         window.removeEventListener('gvp:idb-late-init', this._boundHandleLateInit);
+        window.removeEventListener('gvp:vidgen-beacon', this._boundHandleVidGenBeacon);
         window.Logger.info('UIPlaylist', 'Destroyed');
     }
 };

@@ -125,7 +125,7 @@ window.IndexedDBManager = class IndexedDBManager {
             console.log('[GVP IndexedDB] Initializing database...');
 
             this.db = await this._openDatabase();
-            
+
             // Perform post-open initialization logic (migrations, etc.)
             const success = await this._postOpenInit(this.db);
             if (!success) {
@@ -137,7 +137,7 @@ window.IndexedDBManager = class IndexedDBManager {
                 this.initialized = false;
                 return false;
             }
-            
+
             this.initialized = true;
             console.log('[GVP IndexedDB] ✅ Database initialized successfully');
             return true;
@@ -181,12 +181,12 @@ window.IndexedDBManager = class IndexedDBManager {
             request.onsuccess = () => {
                 clearTimeout(timeout);
                 const db = request.result;
-                
+
                 // Handle late-success (after fallback already triggered)
                 if (timedOut) {
                     console.log('[GVP IndexedDB] ✨ Late Success: Database connection established after fallback.');
                     this.db = db;
-                    
+
                     // Critical: Complete the full initialization sequence before dispatching event
                     this._postOpenInit(db).then((success) => {
                         if (success) {
@@ -196,10 +196,14 @@ window.IndexedDBManager = class IndexedDBManager {
                             window.dispatchEvent(new CustomEvent('gvp:idb-late-init', { detail: { db } }));
                         } else {
                             window.Logger?.error('IndexedDBManager', '❌ Late post-open init failed (returned false)');
+                            if (db && typeof db.close === 'function') db.close();
+                            this.db = null;
                             this.initialized = false;
                         }
                     }).catch(err => {
                         window.Logger?.error('IndexedDBManager', '❌ Late post-open init rejected', err);
+                        if (db && typeof db.close === 'function') db.close();
+                        this.db = null;
                         this.initialized = false;
                     });
                     return;
