@@ -4,7 +4,7 @@
     "description": "The name of the application"
   },
   "appDescription": {
-    "message": "Complete video generation assistant for Grok",
+    "message": "Complete video generation assistant for Grok.",
     "description": "The description of the application"
   }
 }

@@ -9,6 +9,13 @@ window.StateManager = class StateManager {
         this.indexedDBManager = indexedDBManager;
         this._storageInitialized = false;
 
+        // Listen for late IndexedDB initialization (v1.47 emergency fallback support)
+        window.addEventListener('gvp:idb-late-init', async () => {
+            window.Logger.info('StateManager', '📥 Late IndexedDB initialization detected. Reloading data...');
+            await this._loadSettings();
+            window.Logger.info('StateManager', '✅ Late data load complete.');
+        });
+
         // Track 30-second timeouts for pending generations
         this._generationTimeouts = new Map(); // attemptId -> { timeoutId, imageId }
 
@@ -112,6 +119,7 @@ window.StateManager = class StateManager {
         // CRITICAL FIX: Do NOT load settings in constructor!
         // Settings must load AFTER IndexedDB initializes
         this._settingsPromise = null; // Will be set in initialize()
+        this._settingsLoadPromise = null; // v1.47 FIXED: Shared promise to prevent concurrent loads
         this._multiGenHistorySaveTimer = null;
         this.MULTI_GEN_LIMITS = Object.freeze({
             maxImages: 5000, // Increased from 36 for IndexedDB support
@@ -1956,10 +1964,16 @@ window.StateManager = class StateManager {
     }
 
     async _loadSettings() {
-        window.Logger.info('StateManager', '🔄 Loading settings and IndexedDB data...');
+        // v1.47 FIXED: Return existing promise if load is already in progress
+        if (this._settingsLoadPromise) {
+            window.Logger.debug('StateManager', '⏳ _loadSettings already in progress, returning shared promise');
+            return this._settingsLoadPromise;
+        }
 
-        // Use Chrome storage for settings, IndexedDB for large data
-        return new Promise((resolve) => {
+        this._settingsLoadPromise = new Promise((resolve, reject) => {
+            window.Logger.info('StateManager', '🔄 Loading settings and IndexedDB data...');
+
+            // Use Chrome storage for settings, IndexedDB for large data
             chrome.storage.local.get(['gvp-settings', 'gvp-custom-dropdown-values', 'gvp-active-account'], async (result) => {
                 try {
                     const saved = result['gvp-settings'];
@@ -2122,9 +2136,13 @@ window.StateManager = class StateManager {
                     window.Logger.error('StateManager', '❌ Failed to load settings:', error);
                     // Resolve anyway to prevent blocking initialization
                     resolve();
+                } finally {
+                    this._settingsLoadPromise = null;
                 }
             });
         });
+
+        return this._settingsLoadPromise;
     }
 
     saveSettings() {

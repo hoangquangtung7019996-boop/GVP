@@ -27,3 +27,18 @@ src/**/*.html
 public/**/*.html
 
 # Re-allow explicit config JSONs if verified later, but for now we keep it lean.
+HANDOVER.md
+icons/Extendedvideo-get.json
+icons/gvp_chunks_Export.json
+icons/GVP_ExportSettingsexportOLD.json
+icons/gvp_promplibraryexport.json
+icons/gvp_word_swapsexport.json
+icons/gvp-indexeddb-export.json
+icons/imgsucess.json
+icons/list-extendedvideo versin.json
+icons/list.json
+icons/payloads.txt
+icons/Queue-modeExport.json
+icons/rootimage-get.json
+icons/VidModeratred.json
+icons/VidSucess.json

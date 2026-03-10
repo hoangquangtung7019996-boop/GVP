@@ -26,6 +26,20 @@ window.UIPromptLibraryManager = class UIPromptLibraryManager {
         };
 
         this.dom = {};
+
+        // Late-init reactivity: Refresh data if IDB becomes ready while modal is open
+        this._boundHandleLateInit = async () => {
+            if (this.state.isEditing) {
+                window.Logger.info('PromptLibrary', '⚠️ Late IDB init detected, but user is editing. Skipping refresh to preserve draft.');
+                return;
+            }
+            window.Logger.info('PromptLibrary', '📥 Late IDB init detected, refreshing data...');
+            await this.loadData();
+            if (this.dom.modal && this.dom.modal.parentElement) {
+                this._renderAll();
+            }
+        };
+        window.addEventListener('gvp:idb-late-init', this._boundHandleLateInit);
     }
 
     async render() {
@@ -905,5 +919,11 @@ window.UIPromptLibraryManager = class UIPromptLibraryManager {
         if (window.gvpUIManager && window.gvpUIManager.uiRawInputManager) {
             window.gvpUIManager.uiRawInputManager.refreshSavedPromptStates();
         }
+    }
+
+    destroy() {
+        this.close();
+        window.removeEventListener('gvp:idb-late-init', this._boundHandleLateInit);
+        window.Logger.info('PromptLibrary', 'Destroyed');
     }
 }

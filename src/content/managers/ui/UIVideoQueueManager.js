@@ -51,6 +51,14 @@ window.UIVideoQueueManager = class UIVideoQueueManager {
         this.loadFilter = 'all';
 
         this._boundHandleRailProgress = this._handleRailProgress.bind(this);
+        this._boundHandleLateInit = async () => {
+            window.Logger.info('Queue', '📥 Late IDB init detected, refreshing queue...');
+            try {
+                await this._loadRecentImages();
+            } catch (err) {
+                window.Logger.error('Queue', '❌ Error loading recent images on late-init', err);
+            }
+        };
     }
 
     /**
@@ -428,6 +436,7 @@ window.UIVideoQueueManager = class UIVideoQueueManager {
         window.addEventListener('gvp:progress-update', this._boundHandleTerminalState);
         this._boundHandleQueueStatus = this._handleQueueStatus.bind(this);
         window.addEventListener('gvp:queue-status', this._boundHandleQueueStatus);
+        window.addEventListener('gvp:idb-late-init', this._boundHandleLateInit);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1111,19 +1120,6 @@ window.UIVideoQueueManager = class UIVideoQueueManager {
         });
     }
 
-    _attachEventListeners() {
-        // Listen for rail progress updates (raw SSE ticks - used for initial item detection)
-        window.addEventListener('gvp:vidgen-beacon', this._boundHandleRailProgress);
-
-        // Listen for terminal state updates from UIProgressAPI (ONLY fires at progress>=100 or moderated)
-        // This is the single source of truth for terminal states
-        this._boundHandleTerminalState = this._handleTerminalState.bind(this);
-        window.addEventListener('gvp:progress-update', this._boundHandleTerminalState);
-
-        // Listen for queue status updates (running/stopped/paused)
-        this._boundHandleQueueStatus = this._handleQueueStatus.bind(this);
-        window.addEventListener('gvp:queue-status', this._boundHandleQueueStatus);
-    }
 
     /**
      * Handle queue status changes (from VideoQueueManager)
@@ -2586,6 +2582,7 @@ window.UIVideoQueueManager = class UIVideoQueueManager {
         window.removeEventListener('gvp:vidgen-beacon', this._boundHandleRailProgress);
         window.removeEventListener('gvp:queue-status', this._boundHandleQueueStatus);
         window.removeEventListener('gvp:progress-update', this._boundHandleTerminalState);
+        window.removeEventListener('gvp:idb-late-init', this._boundHandleLateInit);
         this.queueItems.clear();
         window.Logger.info('Queue', 'UIVideoQueueManager destroyed');
     }

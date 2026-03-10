@@ -27,9 +27,11 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
         this._onOutsideClick = this._handleOutsideClick.bind(this);
         this._onIdbSync = this._onIdbSync.bind(this);
         this._onVidGenBeacon = this._handleVidGenBeacon.bind(this);
+        this._onIdbLateInit = this._onIdbLateInit.bind(this);
 
         window.addEventListener('gvp:idb-sync', this._onIdbSync);
         window.addEventListener('gvp:vidgen-beacon', this._onVidGenBeacon);
+        window.addEventListener('gvp:idb-late-init', this._onIdbLateInit);
 
         console.log('[GVP GalleryMiniUIManager] ✅ Constructor — shadowRoot via uiManager:', uiManager?.shadowRoot ? '✅ present' : '❌ MISSING');
         window.Logger.info('GalleryMiniUIManager', 'Initialized');
@@ -99,6 +101,7 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
         this.close();
         window.removeEventListener('gvp:idb-sync', this._onIdbSync);
         window.removeEventListener('gvp:vidgen-beacon', this._onVidGenBeacon);
+        window.removeEventListener('gvp:idb-late-init', this._onIdbLateInit);
         window.Logger.info('GalleryMiniUIManager', 'Destroyed');
     }
 
@@ -132,6 +135,21 @@ window.GalleryMiniUIManager = class GalleryMiniUIManager {
                     window.Logger.error('GalleryMiniUIManager', 'Beacon refresh failed', err);
                 }
             }
+        }
+    }
+
+    /**
+     * React to late IDB initialization.
+     * v1.47: Force refresh of rails to ensure IDB data is shown.
+     */
+    async _onIdbLateInit() {
+        if (!this.isOpen || !this.currentImageId || !this._rootEl) return;
+        window.Logger.info('GalleryMiniUIManager', '📥 IDB late-init detected, refreshing rails...');
+        try {
+            const data = await this._resolveData(this.currentImageId);
+            this._populateRails(this._rootEl, data);
+        } catch (err) {
+            window.Logger.error('GalleryMiniUIManager', 'Error refreshing rails on late-init', err);
         }
     }
 
