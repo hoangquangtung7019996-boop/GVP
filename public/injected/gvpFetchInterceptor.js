@@ -16,7 +16,17 @@
   }
 
   window.__gvpFetchInterceptorInstalled = true;
-  console.log('[GVP Interceptor v1.35.3] ✅ Fetch interceptor installed in page context');
+  console.log('[GVP Interceptor v1.47.10] ✅ Fetch interceptor installed in page context');
+
+  const TRACKER_DOMAINS = [
+    'analytics.google.com',
+    'google-analytics.com',
+    'appsflyersdk.com',
+    'appsflyer.com',
+    'mixpanel.com',
+    'doubleclick.net',
+    'googletagmanager.com'
+  ];
 
   const MODE_TOKEN_REGEX = /\s*--mode=\S+/gi;
   let useSpicyMode = false;
@@ -200,10 +210,20 @@
       return { modified: false, reason: 'non-string-body' };
     }
 
+    const looksLikeJson = typeof init.body === 'string' && (init.body.trim().startsWith('{') || init.body.trim().startsWith('['));
+    if (!looksLikeJson) {
+      return { modified: false, reason: 'non-json-body' };
+    }
+
     let payload;
     try {
-      payload = JSON.parse(init.body);
+      const body = init.body.trim();
+      if (!body.startsWith('{') && !body.startsWith('[')) {
+        return { modified: false, reason: 'body-not-json-start' };
+      }
+      payload = JSON.parse(body);
     } catch (error) {
+      log('Failed to parse request body JSON', { error: error?.message, preview: init.body.substring(0, 100) }, 'error');
       return { modified: false, reason: 'invalid-json' };
     }
 
@@ -378,19 +398,32 @@
             continue;
           }
 
+          const looksLikeLineJson = jsonString.startsWith('{') || jsonString.startsWith('[');
+          if (!looksLikeLineJson) {
+            continue;
+          }
+
           try {
             const payload = JSON.parse(jsonString);
-            const videoData = payload?.result?.response?.streamingVideoGenerationResponse;
+
+            const videoData = payload?.result?.response?.streamingVideoGenerationResponse || 
+                              payload?.streamingVideoGenerationResponse ||
+                              payload?.result?.streamingVideoGenerationResponse ||
+                              payload?.result?.response?.streamingImageGenerationResponse ||
+                              payload?.streamingImageGenerationResponse ||
+                              payload?.result?.streamingImageGenerationResponse;
+
             if (!videoData) {
               continue;
             }
 
-            log(`Stream progress: ${videoData.progress}%`, { videoId: videoData.videoId, url: context.url }, 'debug');
+            const mediaId = videoData.videoId || videoData.imageId || null;
+            log(`Stream progress: ${videoData.progress}%`, { mediaId, url: context.url }, 'debug');
 
             const progressPayload = {
               progress: videoData.progress,
               moderated: videoData.moderated === true,
-              videoId: videoData.videoId || null,
+              videoId: mediaId,
               mode: videoData.mode || null,
               imageReference: videoData.imageReference || null,
               modelName: videoData.modelName || null,
@@ -402,13 +435,13 @@
             postBridgeMessage('GVP_FETCH_PROGRESS', progressPayload);
 
             if (videoData.progress === 100) {
-              log('Video generation completed', { videoId: videoData.videoId, moderated: videoData.moderated }, 'debug');
+              log('Generation completed', { mediaId, moderated: videoData.moderated }, 'debug');
               postBridgeMessage('GVP_FETCH_VIDEO_PROMPT', {
-                videoPrompt: videoData.videoPrompt || '',
-                videoUrl: videoData.videoUrl || '',
-                assetId: videoData.assetId || '',
+                videoPrompt: videoData.videoPrompt || videoData.prompt || '',
+                videoUrl: videoData.videoUrl || videoData.imageUrl || '',
+                assetId: videoData.assetId || videoData.imageId || '',
                 progress: videoData.progress,
-                videoId: videoData.videoId || null,
+                videoId: mediaId,
                 mode: videoData.mode || null,
                 imageReference: videoData.imageReference || null,
                 modelName: videoData.modelName || null,
@@ -542,6 +575,13 @@
     }
 
     const method = (init && init.method ? init.method : (input && input.method) || 'GET').toUpperCase();
+
+    // PERFORMANCE: Immediately bypass known tracker domains to silence CSP noise and recursion
+    const isTracker = TRACKER_DOMAINS.some(domain => url.includes(domain));
+    if (isTracker) {
+      return ORIGINAL_FETCH(...args);
+    }
+
     const isTarget = typeof url === 'string' &&
       url.includes('/rest/app-chat/conversations/new') &&
       method === 'POST';
@@ -606,37 +646,45 @@
       // Check if we are "expecting video" but receiving an "image edit" payload
       if (window._gvpExpectingVideo && requestInit && requestInit.body) {
         try {
-          const checkBody = JSON.parse(requestInit.body);
-          const isImageEdit = checkBody.modelName === 'imagine-image-edit' ||
-            checkBody.toolOverrides?.imageGen === true ||
-            checkBody.enableImageGeneration === true;
-
-          if (isImageEdit) {
-            log('[NetworkGuard] 🛑 BLOCKED ACCIDENTAL IMAGE EDIT (Expected Video)', { body: checkBody }, 'error');
-            window.postMessage({
-              source: 'gvp-fetch-interceptor',
-              type: 'GVP_GUARD_BLOCKED',
-              payload: { reason: 'image-edit-detected' }
-            }, '*');
-            // Reset flag immediately
-            window._gvpExpectingVideo = false;
-            throw new Error('🛑 GVP NETWORK GUARD: BLOCKED ACCIDENTAL IMAGE EDIT. Validation failed.');
+          const bodyString = requestInit.body.trim();
+          if (!bodyString.startsWith('{') && !bodyString.startsWith('[')) {
+             log('[NetworkGuard] Body does not look like JSON, skipping guard check', { preview: bodyString.substring(0, 50) }, 'debug');
           } else {
-            log('[NetworkGuard] ✅ Payload validation passed (Not an image edit)', {}, 'debug');
-            // We validated it was NOT an image edit, so we can consume the flag? 
-            // Or stick to timeout. Let's consume it to be safe.
+            const checkBody = JSON.parse(bodyString);
+            const isImageEdit = checkBody.modelName === 'imagine-image-edit' ||
+              (checkBody.toolOverrides && checkBody.toolOverrides.imageGen === true) ||
+              checkBody.enableImageGeneration === true;
+
+            if (isImageEdit) {
+              log('[NetworkGuard] 🛑 BLOCKED ACCIDENTAL IMAGE EDIT (Expected Video)', { body: checkBody }, 'error');
+              window.postMessage({
+                source: 'gvp-fetch-interceptor',
+                type: 'GVP_GUARD_BLOCKED',
+                payload: { reason: 'image-edit-detected' }
+              }, '*');
+              // Reset flag immediately
+              window._gvpExpectingVideo = false;
+              throw new Error('🛑 GVP NETWORK GUARD: BLOCKED ACCIDENTAL IMAGE EDIT. Validation failed.');
+            } else {
+              log('[NetworkGuard] ✅ Payload validation passed (Not an image edit)', {}, 'debug');
+              // We validated it was NOT an image edit, so we can consume the flag? 
+              // Or stick to timeout. Let's consume it to be safe.
             window._gvpExpectingVideo = false;
           }
-        } catch (e) {
-          if (e.message.includes('GVP NETWORK GUARD')) throw e;
-          // Ignore parse errors for guard check
         }
+      } catch (e) {
+        if (e.message?.includes('GVP NETWORK GUARD')) throw e;
+        // Ignore parse errors for guard check
+      }
       }
 
       if ((isTarget || isResponsesTarget) && auroraEnabled && requestInit && requestInit.body) {
         try {
-          const checkBody = JSON.parse(requestInit.body);
-          auroraWillInject = checkBody.enableImageGeneration && (!checkBody.fileAttachments || checkBody.fileAttachments.length === 0);
+          const bodyString = requestInit.body.trim();
+          if (bodyString.startsWith('{') || bodyString.startsWith('[')) {
+            const checkBody = JSON.parse(bodyString);
+            auroraWillInject = checkBody.enableImageGeneration && (!checkBody.fileAttachments || checkBody.fileAttachments.length === 0);
+          }
         } catch (e) {
           // Ignore parse errors
         }
@@ -698,11 +746,13 @@
 
       if (requestInit && requestInit.body && typeof requestInit.body === 'string') {
         try {
-          const body = JSON.parse(requestInit.body);
-          log('[Aurora] Parsed body', { enableImageGeneration: body.enableImageGeneration, hasFileAttachments: body.fileAttachments && body.fileAttachments.length > 0 });
+          const bodyString = requestInit.body.trim();
+          if (bodyString.startsWith('{') || bodyString.startsWith('[')) {
+            const body = JSON.parse(bodyString);
+            log('[Aurora] Parsed body', { enableImageGeneration: body.enableImageGeneration, hasFileAttachments: body.fileAttachments && body.fileAttachments.length > 0 });
 
-          // Only inject if enableImageGeneration is true AND no existing fileAttachments
-          if (body.enableImageGeneration && (!body.fileAttachments || body.fileAttachments.length === 0)) {
+            // Only inject if enableImageGeneration is true AND no existing fileAttachments
+            if (body.enableImageGeneration && (!body.fileAttachments || body.fileAttachments.length === 0)) {
             log('[Aurora] Conditions met for injection');
 
             // Detect aspect ratio
@@ -754,13 +804,13 @@
               args[1] = requestInit;
               log('[Aurora] ✅ Aurora injection complete!');
             }
-
           } else {
             log('[Aurora] Skipping injection - conditions not met');
           }
-        } catch (e) {
-          log('[Aurora] Failed to parse/modify body', { error: e.message }, 'error');
         }
+      } catch (e) {
+        log('[Aurora] Failed to parse/modify body', { error: e.message }, 'error');
+      }
       }
     }
 
@@ -812,9 +862,25 @@
       if (response && typeof response.clone === 'function') {
         try {
           const cloned = response.clone();
-          processResponseBody(cloned, { url, requestId: bridgeId }).catch(error => {
-            log('processResponseBody promise rejected', { error: error?.message, url }, 'error');
-          });
+
+          if (!response.ok) {
+            cloned.text().then(text => {
+              let errorData = null;
+              try { errorData = JSON.parse(text); } catch (e) { errorData = text; }
+              postBridgeMessage('GVP_FETCH_ERROR', {
+                url,
+                status: response.status,
+                ok: false,
+                error: errorData,
+                requestId: bridgeId
+              });
+              log('Dispatched GVP_FETCH_ERROR for non-OK response', { status: response.status, url }, 'error');
+            }).catch(e => log('Failed to parse error response body', { error: e?.message }, 'warn'));
+          } else {
+            processResponseBody(cloned, { url, requestId: bridgeId }).catch(error => {
+              log('processResponseBody promise rejected', { error: error?.message, url }, 'error');
+            });
+          }
         } catch (error) {
           log('Failed to clone response for processing', {
             error: error?.message,
