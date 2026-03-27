@@ -6,7 +6,7 @@
 window.NetworkInterceptor = class NetworkInterceptor {
     constructor(stateManager, reactAutomation, uploadAutomationManager) {
         // GVP MODIFICATION: Enhanced lifecycle logging
-        console.log('[NetworkInterceptor] 🚀 Constructor fired');
+        window.Logger?.debug('NetworkInterceptor', '🚀 Constructor fired');
 
         this.stateManager = stateManager;
         this.reactAutomation = reactAutomation;
@@ -25,18 +25,18 @@ window.NetworkInterceptor = class NetworkInterceptor {
         this._multiGenRequestSequence = 0;
         this._fetchWrapper = null;
         this._fetchOverrideInstalled = false;
-        console.log('[NetworkInterceptor] ✅ Constructor completed');
+        window.Logger?.debug('NetworkInterceptor', '✅ Constructor completed');
     }
 
     // GVP MODIFICATION: Explicit initialize method with verification
     initialize() {
-        console.log('[NetworkInterceptor] 🔧 Starting initialization...');
+        window.Logger?.info('NetworkInterceptor', '🔧 Starting initialization...');
 
         // Enhanced fetch override installation
         this._installFetchOverride();
         this._isInitialized = true;
 
-        console.log('[NetworkInterceptor] ✅ Initialization complete - fetch override installed');
+        window.Logger?.info('NetworkInterceptor', '✅ Initialization complete - fetch override installed');
         return true;
     }
 
@@ -473,8 +473,9 @@ window.NetworkInterceptor = class NetworkInterceptor {
             thumbnailUrl = this._normalizeAssetUrl(pendingUpload.fileUri);
         }
         if (!accountId) {
-            if (this.stateManager?.getState?.()?.multiGenHistory?.activeAccountId) {
-                accountId = this.stateManager.getState().multiGenHistory.activeAccountId;
+            const state = this.stateManager?.getState?.();
+            if (state?.multiGenHistory?.activeAccountId) {
+                accountId = state.multiGenHistory.activeAccountId;
                 console.log('[GVP][Interceptor] 🔄 Falling back to stateManager activeAccountId:', accountId);
             } else {
                 console.warn('[GVP][Interceptor] Multi-gen capture skipped: unable to resolve account id', {
@@ -488,15 +489,27 @@ window.NetworkInterceptor = class NetworkInterceptor {
         this._setActiveAccount(accountId, 'conversation-request');
 
         let imageId = this._extractImageIdFromPayload(payload);
-        if (!imageId && accountId) {
-            imageId = this.stateManager.getLastMultiGenImage(accountId);
-        }
         if (!imageId && pendingUpload?.imageId) {
             imageId = pendingUpload.imageId;
         }
+        if (!imageId) {
+            imageId = this.stateManager.getLastMultiGenImage(accountId);
+        }
+        if (!imageId) {
+            const state = this.stateManager?.getState?.();
+            const lastImageId = state?.generation?.lastImageId;
+            if (lastImageId) {
+                imageId = lastImageId;
+                console.log('[GVP][Interceptor] 🔄 Falling back to stateManager generation.lastImageId:', imageId);
+            }
+        }
 
         if (!imageId) {
-            console.warn('[GVP][Interceptor] Multi-gen capture skipped: unable to resolve image id');
+            console.warn('[GVP][Interceptor] Multi-gen capture skipped: unable to resolve image id', {
+                accountId,
+                hasPayload: !!payload,
+                pendingUploadId: pendingUpload?.imageId
+            });
             return null;
         }
 
@@ -564,14 +577,15 @@ window.NetworkInterceptor = class NetworkInterceptor {
             imageReference: imageReference || null,
             lastProgress: 0,
             moderated: false,
-            moderationReason: null,
+            moderationReason: null, // DEPRECATED: Do not use for storage
             videoUrl: null,
             videoId: null,
             videoPrompt: null,
-            finalMessage: null,
-            rawChunks: [],
+            finalMessage: null, // DEPRECATED: Do not use for storage
+            rawChunks: [], // DEPRECATED: Do not use for storage
+
             timeoutId: null,
-            lastEventAt: Date.now(),
+            lastEventAt: new Date().toISOString(),
             completed: false
         };
         this._scheduleMultiGenGuard(context, 60000);
@@ -695,6 +709,37 @@ window.NetworkInterceptor = class NetworkInterceptor {
         }
     }
 
+    /**
+     * Handle multi-gen bridge progress event
+     * @param {Object} payload 
+     */
+    handleBridgeProgress(payload) {
+        if (!payload || !this.stateManager) return;
+        const { imageId, progress, moderated } = payload;
+        if (!imageId) return;
+
+        // Multi-tab stability: use global sync check before updating local progress
+        this.stateManager.appendMultiGenProgress(imageId, progress, { moderated });
+    }
+
+    /**
+     * Handle multi-gen bridge video prompt completion
+     * @param {Object} payload 
+     */
+    handleBridgeVideoPrompt(payload) {
+        if (!payload || !this.stateManager) return;
+        const { imageId, videoUrl, videoPrompt, moderated } = payload;
+        if (!imageId) return;
+
+        // Finalize 100% progress state
+        this.stateManager.appendMultiGenProgress(imageId, 100, { videoUrl, videoPrompt, moderated });
+
+        if (videoPrompt) {
+            this._parseAndSetPromptData(videoPrompt);
+        }
+    }
+
+
     _scheduleMultiGenGuard(context, delayMs = 60000) {
         if (!context || typeof window === 'undefined' || typeof window.setTimeout !== 'function') {
             return;
@@ -764,11 +809,22 @@ window.NetworkInterceptor = class NetworkInterceptor {
             this._setActiveAccount(multiGen.accountId, 'stream-context');
         }
 
-        const streaming = payload?.result?.response?.streamingVideoGenerationResponse ||
+        const isImageEdit = !!(
+            payload?.result?.response?.streamingImageGenerationResponse ||
+            payload?.streamingImageGenerationResponse ||
+            payload?.result?.streamingImageGenerationResponse
+        );
+
+        const streaming = 
+            payload?.result?.response?.streamingVideoGenerationResponse ||
             payload?.streamingVideoGenerationResponse ||
-            payload?.result?.streamingVideoGenerationResponse;
+            payload?.result?.streamingVideoGenerationResponse ||
+            payload?.result?.response?.streamingImageGenerationResponse ||
+            payload?.streamingImageGenerationResponse ||
+            payload?.result?.streamingImageGenerationResponse;
 
         if (streaming) {
+            multiGen.entryType = isImageEdit ? 'image-edit' : 'video';
             const progressRaw = streaming.progress ??
                 streaming.progressValue ??
                 streaming.progressPercent ??
@@ -778,23 +834,49 @@ window.NetworkInterceptor = class NetworkInterceptor {
                 (typeof streaming.status === 'object' ? streaming.status?.progress : null);
             const progressValue = this._coerceProgressValue(progressRaw);
             const moderated = streaming.moderated === true;
-            const normalizedUrl = this._normalizeAssetUrl(streaming.videoUrl);
+            const normalizedUrl = this._normalizeAssetUrl(streaming.videoUrl || streaming.imageUrl);
 
             if (progressValue !== null) {
+                // GVP (v1.60.9): Track last non-moderated progress for moderation snapshots
+                if (!moderated && progressValue < 100) {
+                    multiGen.lastNonModeratedProgress = progressValue;
+                }
+
+                // GVP (v1.60.9): Beacon fires ONLY at terminal state (progress >= 100)
+                // UI managers receive exactly one event per generation — no incremental updates
+                if (progressValue >= 100) {
+                    window.Logger?.info?.('Diagnostics', '[DIAG-V1.60.9] Terminal State Beacon Fired', { imageId, progressValue, moderated });
+                    window.dispatchEvent(new CustomEvent('gvp:vidgen-beacon', {
+                        detail: {
+                            imageId,
+                            progress: progressValue,
+                            moderated,
+                            videoUrl: normalizedUrl || undefined,
+                            thumbnailUrl: streaming.thumbnailUrl || streaming.thumbnail_url || undefined,
+                            lastProgress: moderated ? (multiGen.lastNonModeratedProgress ?? 0) : 100
+                        }
+                    }));
+                }
+
                 if (multiGen.lastProgress !== progressValue || moderated) {
                     this.stateManager.appendMultiGenProgress(imageId, attemptId, progressValue, {
                         moderated,
                         videoUrl: normalizedUrl || undefined,
-                        videoId: streaming.videoId || undefined,
-                        videoPrompt: streaming.videoPrompt,
+                        videoId: streaming.videoId || streaming.imageId || undefined,
+                        videoPrompt: streaming.videoPrompt || streaming.prompt || streaming.imagePrompt,
                         timestamp: new Date().toISOString(),
                         moderationReason: streaming.moderationReason || null
                     });
                     multiGen.lastProgress = progressValue;
                 }
-                multiGen.lastEventAt = Date.now();
+                multiGen.lastEventAt = new Date().toISOString();
                 const guardDelay = progressValue >= 95 ? 150000 : progressValue >= 75 ? 120000 : 90000;
                 this._scheduleMultiGenGuard(multiGen, guardDelay);
+
+                // Set moderated state BEFORE finalizing the stream
+                if (moderated) {
+                    multiGen.moderated = true;
+                }
 
                 if (!multiGen.completed && progressValue >= 100) {
                     const finalizeMeta = moderated
@@ -807,10 +889,6 @@ window.NetworkInterceptor = class NetworkInterceptor {
                 }
             }
 
-            if (moderated) {
-                multiGen.moderated = true;
-                multiGen.moderationReason = streaming.moderationReason || multiGen.moderationReason || null;
-            }
 
             if (normalizedUrl) {
                 multiGen.videoUrl = normalizedUrl;
@@ -842,12 +920,12 @@ window.NetworkInterceptor = class NetworkInterceptor {
 
         const modelResponse = payload?.result?.response?.modelResponse;
         if (modelResponse && typeof modelResponse.message === 'string') {
-            multiGen.finalMessage = modelResponse.message;
-            this.stateManager.updateMultiGenAttempt(imageId, attemptId, { finalMessage: modelResponse.message });
+            // multiGen.finalMessage = modelResponse.message; // PURGED AGAIN
         }
+
     }
 
-    _finalizeMultiGenStream(requestMetadata, { error } = {}) {
+    async _finalizeMultiGenStream(requestMetadata, { error } = {}) {
         if (!this._multiGenHistoryEnabled || !requestMetadata || !requestMetadata.multiGen) {
             return;
         }
@@ -857,49 +935,89 @@ window.NetworkInterceptor = class NetworkInterceptor {
             return;
         }
         data.completed = true;
+        
         if (data.timeoutId) {
             window.clearTimeout(data.timeoutId);
             data.timeoutId = null;
         }
 
-        const finalizePayload = {
-            rawStream: Array.isArray(data.rawChunks) && data.rawChunks.length ? data.rawChunks.join('') : null,
-            videoUrl: data.videoUrl || null,
-            videoId: data.videoId || null,
-            videoPrompt: data.videoPrompt,
-            finalMessage: data.finalMessage || null
-        };
+        // Nuclear Strategy: Minimalist update -> upgraded to UVH Lean Scoreboard
+        if (data.videoId || data.imageId) {
+            // Reconstruct full attempt state from metadata map
+            const meta = (data.videoId && this._bridgeMetadataByVideoId.get(data.videoId)) || {};
+            
+            const isModerated = !!data.moderated;
+            const attemptData = {
+                id: data.videoId || (`mod-attempt-${Date.now()}`),
+                timestamp: Date.now(),
+                status: isModerated ? 'moderated' : 'success',
+                prompt: data.videoPrompt || data.prompt || null,
+                parentPostId: data.imageId || meta.imageReference || null,
+                mode: data.mode || meta.mode || null,
+                modelName: data.modelName || meta.modelName || null,
+                imageReference: data.imageReference || meta.imageReference || null
+            };
 
-        if (data.prompt) {
-            finalizePayload.prompt = data.prompt;
+            // Add branch-specific fields
+            if (isModerated) {
+                attemptData.lastProgress = data.lastNonModeratedProgress ?? meta.progress ?? 0;
+                
+                window._gvpModeratedUrls = window._gvpModeratedUrls || new Map();
+                if (attemptData.parentPostId) {
+                    window._gvpModeratedUrls.set(attemptData.parentPostId, {
+                        moderatedAt: new Date(attemptData.timestamp).toISOString(),
+                        lastProgress: attemptData.lastProgress,
+                        moderatedPostId: attemptData.id,
+                        sourceImageUrl: attemptData.imageReference
+                    });
+                }
+            } else {
+                attemptData.videoUrl = data.videoUrl || meta.url || null;
+                // Note: thumbnailUrl and other /list specific fields will be merged in by Task C
+            }
+
+            // Determine generation type (video vs image-edit) directly from the stream inference
+            const entryType = data.entryType || 'video';
+
+            // Push lean scoreboard to UVH IndexedDB
+            if (this.stateManager?.indexedDBManager?.appendAttemptToUnifiedEntry) {
+                this.stateManager.indexedDBManager.appendAttemptToUnifiedEntry(data.imageId, entryType, attemptData)
+                    .catch(err => window.Logger?.error('Interceptor', 'Failed UVH scoreboard append:', err));
+            }
+
+            // Keep legacy UI notification alive
+            if (this.stateManager?.recordVideoGeneration && data.videoId) {
+                this.stateManager.recordVideoGeneration(data.imageId, {
+                    id: data.videoId,
+                    url: attemptData.videoUrl,
+                    prompt: attemptData.prompt,
+                    timestamp: attemptData.timestamp,
+                    moderated: isModerated
+                });
+            }
+
+            // Terminal beacon — notify all live-update listeners (VideoPlayer, History, GalleryMini)
+            // _dispatchVidGenBeacon guards on !videoId && !assetId; use attemptData.id which is always set.
+            this._dispatchVidGenBeacon({
+                videoId: attemptData.id,
+                imageId: data.imageId,
+                parentPostId: data.imageId,
+                progress: isModerated ? (data.lastNonModeratedProgress ?? 0) : 100,
+                moderated: isModerated,
+                videoUrl: isModerated ? null : (data.videoUrl || null),
+                thumbnailUrl: data.thumbnailUrl || null
+            });
         }
 
-        if (data.moderated) {
-            finalizePayload.moderated = true;
-            if (data.moderationReason) {
-                finalizePayload.moderationReason = data.moderationReason;
+        if (data.requestId) {
+            this._bridgeRequestsById.delete(data.requestId);
+            if (this.stateManager?.disarmMultiGenRequest) {
+                this.stateManager.disarmMultiGenRequest(data.requestId);
             }
         }
 
         if (error) {
-            finalizePayload.error = String(error);
-            finalizePayload.status = 'failed';
             console.error('[GVP][Interceptor] Multi-gen stream encountered error', error);
-        }
-
-        let attemptResult = null;
-        try {
-            attemptResult = this.stateManager.finalizeMultiGenAttempt(data.imageId, data.attemptId, finalizePayload);
-        } finally {
-            if (data.requestId) {
-                this._bridgeRequestsById.delete(data.requestId);
-            }
-            if (data.requestId) {
-                this.stateManager.disarmMultiGenRequest(data.requestId);
-            }
-        }
-        if (attemptResult) {
-            this._handlePostGenerationAutomation(data, attemptResult);
         }
     }
 
@@ -918,7 +1036,7 @@ window.NetworkInterceptor = class NetworkInterceptor {
             imageId,
             fileMetadataId: responseJson.fileMetadataId || null,
             fileUri: responseJson.fileUri,
-            savedAt: Date.now(),
+            savedAt: new Date().toISOString(),
             fileName: responseJson.fileName || null
         };
         console.log('[GVP Upload] Pending upload registered', {
@@ -974,7 +1092,7 @@ window.NetworkInterceptor = class NetworkInterceptor {
 
     // GVP MODIFICATION: Enhanced fetch override with lifecycle tracking
     _installFetchOverride() {
-        console.log('[NetworkInterceptor] 🔧 Installing enhanced fetch override...');
+        window.Logger?.info('NetworkInterceptor', '🔧 Installing enhanced fetch override...');
 
         if (this.originalFetch) {
             console.log('[NetworkInterceptor] ⚠️ Fetch override already exists, skipping re-installation');
@@ -1060,7 +1178,29 @@ window.NetworkInterceptor = class NetworkInterceptor {
      * 3. Confirms account ID and triggers full sync if mismatch persists.
      */
     async performStartupAccountCheck(force = false) {
-        console.log('[GVP][Interceptor] 🔍 Starting startup account check...');
+        // BUDGETED TIMEOUT (v1.46.13)
+        // Ensure startup check doesn't block extension init forever if Grok's API is slow
+        return new Promise((resolve) => {
+            const timeout = setTimeout(() => {
+                console.warn('[GVP][Interceptor] ⏱️ Startup account check timed out (10s), continuing initialization...');
+                resolve(false); 
+            }, 10000);
+
+            this._performStartupAccountCheckInternal(force)
+                .then(result => {
+                    clearTimeout(timeout);
+                    resolve(result);
+                })
+                .catch(err => {
+                    clearTimeout(timeout);
+                    console.error('[GVP][Interceptor] ❌ Startup account check error:', err);
+                    resolve(false);
+                });
+        });
+    }
+
+    async _performStartupAccountCheckInternal(force = false) {
+        console.log('[GVP][Interceptor] 🔍 Starting internal startup account check...');
         const storedAccountId = this.stateManager?.state?.multiGenHistory?.activeAccountId;
         const cookieUserId = this._extractUserIdFromCookie();
 
@@ -1070,27 +1210,33 @@ window.NetworkInterceptor = class NetworkInterceptor {
         // If we have a cookie ID and it matches stored, we are likely fine unless force sync
         if (!force && cookieUserId && storedAccountId === cookieUserId) {
             console.log('[GVP][Interceptor] ✅ Startup check: Account match via cookie. No pulse sync needed.');
-            return;
+            return true;
         }
 
         // If force or mismatch or no cookie, perform pulse sync (limit 10)
         console.log('[GVP][Interceptor] ⚡ Performing pulse sync (limit 10) to verify account...');
         const candidateId = cookieUserId || storedAccountId;
 
+        if (!candidateId) {
+            console.log('[GVP][Interceptor] 👤 No account detected yet, skipping startup sync');
+            return false;
+        }
+
         try {
             // Trigger a small sync just to get a fresh payload and confirm account ID
-            // Passing limit 10 as requested
+            console.log(`[GVP][Interceptor] 📡 Triggering startup-pulse for ${candidateId.slice(0, 8)}...`);
             const result = await this.triggerBulkGallerySync(candidateId, 'startup-pulse', 10);
 
             if (result && result.success) {
-                // If triggerBulkGallerySync updated the account via _setActiveAccount internally,
-                // then _setActiveAccount already handled the switch logic and full sync.
                 console.log('[GVP][Interceptor] ✅ Startup pulse check completed.');
+                return true;
             } else {
                 console.warn('[GVP][Interceptor] ⚠️ Startup pulse check failed or returned no data.');
+                return false;
             }
         } catch (error) {
             console.error('[GVP][Interceptor] ❌ Error during startup account check:', error);
+            return false;
         }
     }
 
@@ -1127,6 +1273,17 @@ window.NetworkInterceptor = class NetworkInterceptor {
         try {
             const encoding = response.headers?.get?.('content-encoding') || '';
             let payloadText = '';
+            // v1.21.43: Fix ReferenceError with localized localTopId check
+            let localTopId = null;
+            try {
+                const idb = this.stateManager.indexedDBManager;
+                const localTop = await idb.getAllUnifiedEntries(accountId, 1);
+                localTopId = localTop?.[0]?.imageId || null;
+                
+                if (localTopId) {
+                    window.Logger?.debug('NetworkInterceptor', 'Sentinel check synced', { top: localTopId });
+                }
+            } catch (_sentinelLocalErr) { /* non-fatal */ }
 
             if (encoding.includes('gzip')) {
                 console.log('[GVP][Interceptor] 🗜️ Detected gzip encoded gallery response');
@@ -1238,6 +1395,7 @@ window.NetworkInterceptor = class NetworkInterceptor {
     }
 
     _ingestGalleryPayload(payload, meta = {}) {
+        if (!payload) return;
         // ─── ACCOUNT ID EXTRACTION (URL UUID Law) ────────────────────────────
         // The /list API is the most reliable source for the account UUID.
         const accountId = this._extractAccountIdFromPayload(payload);
@@ -1249,7 +1407,7 @@ window.NetworkInterceptor = class NetworkInterceptor {
         const activeAccountId = accountId || this.stateManager?.state?.multiGenHistory?.activeAccountId;
         const posts = this._extractGalleryPosts(payload, activeAccountId);
 
-        if (!posts.length) {
+        if (!Array.isArray(posts) || !posts.length) {
             console.log('[GVP][Interceptor] ℹ️ Gallery payload produced no posts');
             return;
         }
@@ -1269,12 +1427,14 @@ window.NetworkInterceptor = class NetworkInterceptor {
         // UIGalleryManager._identifyAndInject reads this on hover for the fast-path.
         if (this.stateManager) {
             try {
-                const currentState = this.stateManager.getState();
+                const currentState = this.stateManager?.getState?.();
+                if (!currentState) return;
                 const galleryData = currentState.galleryData || {};
                 const existingPosts = Array.isArray(galleryData.posts) ? galleryData.posts : [];
 
                 // Merge: update existing entries by imageId, append new ones
-                const postMap = new Map(existingPosts.map(p => [p.imageId, p]));
+                const postMap = new Map();
+                existingPosts.forEach(p => { if (p?.imageId) postMap.set(p.imageId, p); });
                 posts.forEach(p => { if (p?.imageId) postMap.set(p.imageId, p); });
 
                 this.stateManager.setState({
@@ -1290,134 +1450,82 @@ window.NetworkInterceptor = class NetworkInterceptor {
         }
 
         // ── 2. IDB write (async, non-blocking) ───────────────────────────────
-        // Backfills each /list post into the unified video history store so that
-        // UIGalleryManager._identifyAndInject has an IDB fallback on subsequent
-        // hovers (e.g. after memory state is cleared or on first-run before state
-        // is warm).  We do a safe merge: existing entries with richer data
-        // (editedImages/videos already populated) are NOT overwritten — we only
-        // fill in missing fields. originalPostId is always preserved.
-        const idbManager = this.stateManager?.storageManager?.indexedDBManager || window.gvpIndexedDB;
-        if (idbManager?.initialized) {
-            // ── 2a. Pre-compute parentIndex pairs synchronously ──────────────
-            // Extract parentPairs BEFORE the UVH chunking loop so the early-return
-            // optimization doesn't cause existing root posts to skip registering kids.
-            const parentPairs = [];
-            for (const post of posts) {
-                if (!post?.imageId) continue;
-
-                // Case A: this post IS a child (has a known parent)
-                if (post.originalPostId) {
-                    let rootId = post.originalPostId;
-                    const seen = new Set([post.imageId]);
-                    for (let depth = 0; depth < 5; depth++) {
-                        const parentPost = posts.find(p => p.imageId === rootId);
-                        if (!parentPost || !parentPost.originalPostId) break; // found root
-                        if (seen.has(parentPost.imageId)) break; // cycle guard
-                        seen.add(parentPost.imageId);
-                        rootId = parentPost.originalPostId;
-                    }
-                    parentPairs.push({ childId: post.imageId, rootId });
+        // Backfills each /list post into the unified video history store.
+        // v1.60.3: BULK OPTIMIZED to prevent IDB origin deadlock.
+        const idb = this.stateManager?.indexedDBManager;
+        if (idb) {
+            (async () => {
+                if (this._isIngestingUnified) {
+                    window.Logger?.debug('NetworkInterceptor', '⏳ Already ingesting unified history. Skipping concurrent run.');
+                    return;
                 }
 
-                // Case B: this post is a root — register all its editedImages + videos as children
-                if (!post.originalPostId) {
-                    const rootId = post.imageId;
-                    const beforeLen = parentPairs.length;
+                try {
+                    this._isIngestingUnified = true;
 
-                    for (const edit of (post.editedImages || [])) {
-                        const childId = edit?.imageId || edit?.id;
-                        if (childId) parentPairs.push({ childId, rootId });
-                    }
-                    for (const vid of (post.videos || [])) {
-                        const childId = vid?.videoId || vid?.id;
-                        if (childId) parentPairs.push({ childId, rootId });
+                    // v1.60.5: Proactive initialization with Fail-Fast check
+                    if (!idb.initialized && !idb._initPromise) {
+                        const ready = await idb.initialize();
+                        if (!ready) return;
                     }
 
-                    // Case C: Fallback to raw API payload's childPosts[]
-                    if (parentPairs.length === beforeLen && Array.isArray(post.raw?.childPosts)) {
-                        for (const child of post.raw.childPosts) {
-                            const childId = child?.id || child?.postId;
-                            if (childId && childId !== rootId) {
-                                parentPairs.push({ childId, rootId });
+
+                    // Extract active account for mapping
+                    const activeAccountId = this.stateManager?.state?.multiGenHistory?.activeAccountId;
+
+                    const parentPairs = [];
+                    for (const post of posts) {
+                        if (!post?.imageId) continue;
+
+                        if (post.originalPostId) {
+                            let rootId = post.originalPostId;
+                            const seen = new Set([post.imageId]);
+                            for (let depth = 0; depth < 5; depth++) {
+                                const parentPost = posts.find(p => p.imageId === rootId);
+                                if (!parentPost || !parentPost.originalPostId) break;
+                                if (seen.has(parentPost.imageId)) break;
+                                seen.add(parentPost.imageId);
+                                rootId = parentPost.originalPostId;
+                            }
+                            parentPairs.push({ childId: post.imageId, rootId });
+                        }
+
+                        if (!post.originalPostId) {
+                            const rootId = post.imageId;
+                            for (const edit of (post.editedImages || [])) {
+                                const childId = edit?.imageId || edit?.id;
+                                if (childId) parentPairs.push({ childId, rootId });
+                            }
+                            for (const vid of (post.videos || [])) {
+                                const childId = vid?.videoId || vid?.id;
+                                if (childId) parentPairs.push({ childId, rootId });
                             }
                         }
-                        const caseC = parentPairs.length - beforeLen;
-                        if (caseC > 0) console.log(`[GVP][parentIndex] ROOT ${rootId.substring(0, 8)}… Case C: extracted ${caseC} children from raw childPosts`);
                     }
 
-                    const added = parentPairs.length - beforeLen;
-                    if (added > 0) console.log(`[GVP][parentIndex] ROOT ${rootId.substring(0, 8)}… registered ${added} children (${(post.editedImages || []).length} edits + ${(post.videos || []).length} videos)`);
-                }
-            }
+                    // 1. Batch-flush all parentIndex pairs
+                    if (parentPairs.length > 0 && idb.setParentLinks) {
+                        console.log(`[GVP][parentIndex] 📊 Writing ${parentPairs.length} links...`);
+                        await idb.setParentLinks(parentPairs).catch(e => console.error('[GVP] setParentLinks failed', e));
+                    }
 
-            // Fire-and-forget; errors are caught per-post so one failure doesn't
-            // block others. The 40ms stagger avoids hammering IDB on the large
-            // page-load /list call (potentially 4000 items).
-            const CHUNK_SIZE = 50;
-            (async () => {
-                // Batch-flush all parentIndex pairs in one IDB transaction IMMEDIATELY
-                console.log(`[GVP][parentIndex] 📊 Total parentPairs to write: ${parentPairs.length}`);
-                if (parentPairs.length > 0 && idbManager.setParentLinks) {
-                    const ok = await idbManager.setParentLinks(parentPairs).catch(e => {
-                        console.error(`[GVP][parentIndex] ❌ Batch write FAILED:`, e);
-                        return false;
-                    });
-                    console.log(`[GVP][parentIndex] ✅ Batch write result: ${ok}, ${parentPairs.length} pairs written`);
-                    // Log first 5 pairs for quick visual check
-                    parentPairs.slice(0, 5).forEach((p, i) => console.log(`[GVP][parentIndex]   pair[${i}]: child=${p.childId.substring(0, 8)}… → root=${p.rootId.substring(0, 8)}…`));
-                } else if (posts.length > 0) {
-                    console.log(`[GVP][parentIndex] ⚠️ No pairs to write out of ${posts.length} posts (parentPairs empty or setParentLinks missing)`);
-                }
-
-                for (let i = 0; i < posts.length; i += CHUNK_SIZE) {
-                    const chunk = posts.slice(i, i + CHUNK_SIZE);
-                    await Promise.all(chunk.map(async post => {
-                        if (!post?.imageId) return;
-                        try {
-                            // Only merge — never downgrade a richer existing entry
-                            const existing = await idbManager.getUnifiedEntry(post.imageId);
-
-                            const isNew = !existing;
-                            const postHasEdits = Array.isArray(post?.editedImages) && post.editedImages.length > 0;
-                            const postHasVideos = Array.isArray(post?.videos) && post.videos.length > 0;
-
-                            // For EXISTING entries, only update if post offers something new
-                            const needsEdits = isNew ? postHasEdits : ((!Array.isArray(existing.editedImages) || existing.editedImages.length === 0) && postHasEdits);
-                            const needsVideos = isNew ? postHasVideos : ((!Array.isArray(existing.videos) || existing.videos.length === 0) && postHasVideos);
-                            const needsOriginalPostId = !isNew && !existing.originalPostId && !!post.originalPostId;
-
-                            // Skip entirely if not new AND post doesn't offer anything existing doesn't have
-                            if (!isNew && !needsEdits && !needsVideos && !needsOriginalPostId) return;
-
-                            const merged = {
-                                // Spread existing first so we don't clobber richer fields
-                                ...(existing || {}),
-                                imageId: post.imageId,
-                                imageUrl: existing?.imageUrl || post.imageUrl || null,
-                                thumbnailUrl: existing?.thumbnailUrl || post.thumbnailUrl || null,
-                                title: existing?.title || post.title || '',
-                                createdAt: existing?.createdAt || post.createdAt || new Date().toISOString(),
-                                updatedAt: new Date().toISOString(),
-                                // Always preserve/backfill originalPostId — critical for child-to-parent resolution
-                                originalPostId: existing?.originalPostId || post.originalPostId || null,
-                                // ALWAYS store editedImages/videos when available
-                                editedImages: needsEdits ? (post.editedImages || []) : (existing?.editedImages || []),
-                                videos: needsVideos ? (post.videos || []) : (existing?.videos || []),
-                            };
-
-                            await idbManager.saveUnifiedEntry(merged);
-
-                            console.log(`[GVP][parentIndex] Post ${merged.imageId.substring(0, 8)}… saved. editedImages=${(merged.editedImages || []).length}, videos=${(merged.videos || []).length}, originalPostId=${merged.originalPostId || 'NULL (ROOT)'}, raw.childPosts=${Array.isArray(post.raw?.childPosts) ? post.raw.childPosts.length : 'N/A'}`);
-                        } catch (idbErr) {
-                            window.Logger.debug('NetworkInterceptor', `IDB upsert failed for ${post.imageId?.substring(0, 8)}`, idbErr.message);
+                    // 2. BULK UVH PROCESSING (Single-Transaction optimized)
+                    if (posts.length > 0) {
+                        window.Logger.info('[GVP][Interceptor] 💾 Sending to IndexedDB bulk save (UVH_unifiedVideoHistory)', { count: posts.length, accountId: activeAccountId });
+                        const stats = await idb.saveUnifiedEntriesBulk(posts, activeAccountId);
+                        window.Logger.info('[GVP][Interceptor] ✅ Bulk save complete', stats);
+                        
+                        if (this.stateManager?.upsertUnifiedEntries && stats?.success > 0) {
+                            this.stateManager.upsertUnifiedEntries(posts);
                         }
-                    }));
-                    // Yield to avoid blocking the event loop
-                    await new Promise(r => setTimeout(r, 0));
+                        window.Logger.debug('NetworkInterceptor', `✅ IDB UVH backfill complete: ${stats.success}/${stats.total} saved`);
+                    }
+                } catch (err) {
+                    window.Logger?.error('NetworkInterceptor', 'Fail during gallery backfill:', err);
+                } finally {
+                    this._isIngestingUnified = false;
                 }
-
-                window.Logger.debug('NetworkInterceptor', `✅ IDB backfill complete for ${posts.length} /list posts`);
-            })().catch(err => window.Logger.warn('NetworkInterceptor', '⚠️ IDB backfill runner failed', err));
+            })();
         }
     }
 
@@ -1471,7 +1579,7 @@ window.NetworkInterceptor = class NetworkInterceptor {
      * @param {Array} rawPosts - Raw post items from the API
      * @returns {Promise<void>}
      */
-    async _ingestListToUnified(rawPosts) {
+    async _ingestListToUnified(rawPosts, explicitAccountId = null) {
         if (!Array.isArray(rawPosts) || !rawPosts.length) return;
 
         // 1. Extraction of Account ID (if not already set)
@@ -1484,7 +1592,8 @@ window.NetworkInterceptor = class NetworkInterceptor {
             }
         }
 
-        const activeAccountId = this.stateManager?.state?.multiGenHistory?.activeAccountId;
+        // v1.47.6 Isolation Pattern: Use explicit accountId if provided, fallback to state
+        const activeAccountId = explicitAccountId || this.stateManager?.state?.multiGenHistory?.activeAccountId;
         window.Logger.info('NetworkInterceptor', `📥 Ingesting ${rawPosts.length} posts to unified history (Account: ${activeAccountId || 'global'})`);
 
         try {
@@ -1503,7 +1612,7 @@ window.NetworkInterceptor = class NetworkInterceptor {
 
             window.Logger.debug('NetworkInterceptor', `✅ Bulk sync normalization/state-update complete for ${normalizedPosts.length} posts`);
         } catch (error) {
-            window.Logger.error('NetworkInterceptor', '❌ Failed batch ingestion of /list posts', error);
+            window.Logger.debug('NetworkInterceptor', '❌ Failed batch ingestion of /list posts', error);
         }
     }
 
@@ -1937,8 +2046,7 @@ window.NetworkInterceptor = class NetworkInterceptor {
             originalPostId: post.originalPostId || post.parentId || null,
             accountId: activeAccountId, // Critical for account isolation
             editedImages,   // Array of { id, url, prompt, createdAt } — image edits from /list
-            videos,         // Array of { id, url, thumbnailUrl, prompt, duration } — videos from /list
-            raw: post
+            videos          // Array of { id, url, thumbnailUrl, prompt, duration } — videos from /list
         };
     }
 
@@ -2061,9 +2169,12 @@ window.NetworkInterceptor = class NetworkInterceptor {
 
     _normalizeTimestamp(value) {
         if (!value) return null;
-        if (typeof value === 'number') return value;
-        const parsed = Date.parse(value);
-        return Number.isNaN(parsed) ? null : parsed;
+        try {
+            const date = new Date(value);
+            return isNaN(date.getTime()) ? null : date.getTime();
+        } catch (e) {
+            return null;
+        }
     }
 
     _extractModes(post) {
@@ -2088,11 +2199,11 @@ window.NetworkInterceptor = class NetworkInterceptor {
     start() {
         try {
             const w = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
-            console.log('[GVP][Interceptor] 🔁 start() called - preparing fetch override');
+            window.Logger?.debug('NetworkInterceptor', '[GVP][Interceptor] 🔁 start() called - preparing fetch override');
             if (!w || !w.fetch) {
-                console.warn('[GVP][Interceptor] ⚠️ Window context missing fetch!');
+                window.Logger?.warn('NetworkInterceptor', '[GVP][Interceptor] ⚠️ Window context missing fetch!');
             } else {
-                console.log('[GVP][Interceptor] ✅ Window fetch detected:', typeof w.fetch);
+                window.Logger?.debug('NetworkInterceptor', '[GVP][Interceptor] ✅ Window fetch detected:', typeof w.fetch);
             }
             this._overrideFetch(w, {
                 force: true,
@@ -2304,7 +2415,11 @@ window.NetworkInterceptor = class NetworkInterceptor {
                     (requestUrl.includes('/conversations/new') || requestUrl.includes('/responses'))) {
                     try {
                         let body = JSON.parse(options.body);
-                        const state = interceptor.stateManager.getState();
+                        const state = interceptor.stateManager?.getState?.();
+                        if (!state) {
+                            console.warn('[GVP][Interceptor] ⚠️ State missing in fetch wrapper, forwarding to original call.');
+                            return interceptor.originalFetch(...args);
+                        }
 
                         // ENHANCED: Capture imageId from fileAttachments
                         if (body.fileAttachments && body.fileAttachments.length > 0) {
@@ -2355,9 +2470,22 @@ window.NetworkInterceptor = class NetworkInterceptor {
                 // Call original fetch
                 let response;
                 try {
+                    // Propagate abort signal if present in the input Request or options
+                    const signal = options.signal || (requestInfo instanceof Request ? requestInfo.signal : undefined);
+
+                    // Inject signal into args if not already explicitly handled by bound originalFetch
+                    if (signal && !options.signal) {
+                        options.signal = signal;
+                    }
+
                     response = await interceptor.originalFetch(...args);
                 } catch (fetchError) {
-                    console.error('[GVP][Interceptor] ❌ Original fetch threw error', fetchError);
+                    if (fetchError.name === 'AbortError') {
+                        console.log('[GVP][Interceptor] 🛑 Fetch aborted by user/system');
+                    } else {
+                        console.error('[GVP][Interceptor] ❌ Original fetch threw error', fetchError);
+                    }
+
                     if (typeof requestUrl === 'string' &&
                         requestUrl.includes('/rest/app-chat/upload-file') &&
                         method === 'POST' &&
@@ -2586,12 +2714,11 @@ window.NetworkInterceptor = class NetworkInterceptor {
 
     _processLine(line, requestMetadata = null) {
         try {
-            console.log('[GVP][Interceptor] 🧾 _processLine received line prefix:', line.substring(0, 80));
+            window.Logger?.debug('NetworkInterceptor', '🧾 _processLine received line prefix', { line: line.substring(0, 80) });
 
             // Enhanced JSON parsing with detailed logging
             const lineStr = line.trim();
             if (!lineStr) {
-                console.log('[NetworkInterceptor] Skipping empty line');
                 return;
             }
 
@@ -2599,7 +2726,6 @@ window.NetworkInterceptor = class NetworkInterceptor {
             let jsonString = lineStr;
             if (lineStr.startsWith('data: ')) {
                 jsonString = lineStr.substring(6);
-                console.log('[GVP][Interceptor] 🔄 Stripped SSE data prefix');
             }
 
             // Enhanced JSON parsing with error handling
@@ -2607,19 +2733,22 @@ window.NetworkInterceptor = class NetworkInterceptor {
             try {
                 obj = JSON.parse(jsonString);
 
-                // Enhanced logging for debugging JSON issues
-                console.log(`[NetworkInterceptor] Successfully parsed JSON:`, {
-                    hasVideoId: !!obj?.result?.response?.streamingVideoGenerationResponse?.videoId,
-                    hasProgress: obj?.result?.response?.streamingVideoGenerationResponse?.progress !== undefined,
-                    hasModerated: obj?.result?.response?.streamingVideoGenerationResponse?.moderated !== undefined,
-                    hasImageReference: !!obj?.result?.response?.streamingVideoGenerationResponse?.imageReference,
-                    hasVideoPrompt: !!obj?.result?.response?.streamingVideoGenerationResponse?.videoPrompt,
-                    progress: obj?.result?.response?.streamingVideoGenerationResponse?.progress
-                });
+                // Enhanced logging for debugging JSON issues (only if needed via debug)
+                if (obj?.result?.response?.streamingVideoGenerationResponse) {
+                    const vr = obj.result.response.streamingVideoGenerationResponse;
+                    window.Logger?.debug('NetworkInterceptor', 'Parsed progress chunk', {
+                        videoId: vr.videoId,
+                        progress: vr.progress,
+                        moderated: vr.moderated
+                    });
+                }
 
             } catch (e) {
-                console.log(`[NetworkInterceptor] Failed to parse JSON line: ${jsonString.substring(0, 100)}...`, e);
-                console.log(`[NetworkInterceptor] Problematic line: "${jsonString}"`);
+                // Silently ignore parse errors for non-JSON lines or log specifically
+                if (!jsonString.trim().startsWith('{') && !jsonString.trim().startsWith('[')) {
+                    return;
+                }
+                window.Logger?.debug('NetworkInterceptor', 'Failed to parse JSON line', { error: e.message, preview: jsonString.substring(0, 100) });
                 return;
             }
 
@@ -2650,7 +2779,7 @@ window.NetworkInterceptor = class NetworkInterceptor {
                             videoId: videoData.videoId,
                             imageReference: imageReference
                         });
-                        console.log(`[GVP] 🔗 Associated videoId ${videoData.videoId} with imageId ${imageId}`);
+                        window.Logger?.info('NetworkInterceptor', `🔗 Associated videoId ${videoData.videoId} with imageId ${imageId}`);
                     }
                 }
 
@@ -2671,36 +2800,25 @@ window.NetworkInterceptor = class NetworkInterceptor {
 
                     if (videoData.moderated && !generation.moderated) {
                         updates.moderationTimestamp = Date.now();
-                        console.log(`[GVP] ⚠️ Generation ${generation.id} was moderated`);
+                        window.Logger?.warn('NetworkInterceptor', `⚠️ Generation ${generation.id} was moderated`);
                     }
 
                     this.stateManager.updateGeneration(generation.id, updates);
                 }
             }
 
-            if (chunkProgress !== null) {
-                console.log(`[GVP] 📊 Progress: ${chunkProgress}% (videoId: ${videoData.videoId})`);
+            // Define chunkProgress before using it
+            const chunkProgress = this._coerceProgressValue(
+                videoData.progress ?? videoData.progressValue ?? videoData.percent
+            );
 
-                // Dispatch beacon for progress updates
-                this._dispatchVidGenBeacon({
+            // CRITICAL: Only dispatch beacon and extract at terminal state (progress >= 100 or moderated)
+            if (chunkProgress !== null && (chunkProgress >= 100 || !!videoData.moderated)) {
+                window.Logger?.info('NetworkInterceptor', '🎉 Progress reached 100!', {
                     videoId: videoData.videoId,
-                    imageId: meta.imageId || meta.multiGen?.imageId,
-                    parentPostId: videoData.parentPostId || meta.parentPostId,
-                    progress: chunkProgress,
-                    moderated: !!videoData.moderated,
-                    thumbnailUrl: videoData.thumbnailUrl
+                    videoUrl: videoData.videoUrl,
+                    assetId: videoData.assetId
                 });
-            }
-
-            // CRITICAL: Only extract at progress=100
-            if (chunkProgress !== null && chunkProgress >= 100) {
-                console.log('[GVP][Interceptor] 🎉 Progress reached 100!');
-                console.log('[GVP][Interceptor] 🎥 videoUrl:', videoData.videoUrl);
-                console.log('[GVP][Interceptor] 📦 assetId:', videoData.assetId);
-
-                if (videoData.moderated) {
-                    console.log('[GVP] ⚠️ Content moderated');
-                }
 
                 // Dispatch terminal beacon
                 this._dispatchVidGenBeacon({
@@ -2714,74 +2832,16 @@ window.NetworkInterceptor = class NetworkInterceptor {
                 });
 
                 if (videoData.videoPrompt && videoData.videoPrompt.trim()) {
-                    console.log('[GVP][Interceptor] 📝 videoPrompt length:', videoData.videoPrompt.length);
+                    window.Logger?.info('NetworkInterceptor', '📝 videoPrompt captured', { length: videoData.videoPrompt.length });
                     this._parseAndSetPromptData(videoData.videoPrompt);
-                } else {
-                    console.log('[GVP][Interceptor] ⚠️ videoPrompt empty or missing at progress 100');
                 }
             }
-
         } catch (error) {
-            // Silently ignore parse errors for non-JSON lines
-            if (!line.trim().startsWith('{') && !line.trim().startsWith('data:')) {
-                return;
-            }
-            console.error('[GVP][Interceptor] ❌ Line processing error:', error);
-            console.error('[GVP][Interceptor] ❌ Problem line preview:', line.substring(0, 200));
+            window.Logger?.debug('NetworkInterceptor', '❌ Line processing error', { error: error.message, preview: line.substring(0, 200) });
         }
     }
 
-    async _attemptPromptFetchFallback({ imageId, assetId, videoId, source = 'bridge-fallback' } = {}) {
-        const targetId = imageId || assetId || null;
-        if (!targetId) {
-            console.warn('[GVP][Interceptor] Prompt fallback aborted - no target id resolved');
-            return null;
-        }
 
-        const uiManager = window.gvpUIManager;
-        if (!uiManager) {
-            console.warn('[GVP][Interceptor] Prompt fallback aborted - UIManager unavailable');
-            return null;
-        }
-
-        const fetchFn = typeof uiManager._fetchPostPayload === 'function'
-            ? uiManager._fetchPostPayload.bind(uiManager)
-            : null;
-        const processFn = typeof uiManager._processFetchedPostPayload === 'function'
-            ? uiManager._processFetchedPostPayload.bind(uiManager)
-            : null;
-
-        if (!fetchFn || !processFn) {
-            console.warn('[GVP][Interceptor] Prompt fallback aborted - UIManager helpers missing');
-            return null;
-        }
-
-        try {
-            const beforePrompt = this.stateManager?.getState?.()?.generation?.lastPrompt || null;
-            const payload = await fetchFn(targetId);
-            if (!payload) {
-                console.warn('[GVP][Interceptor] Prompt fallback fetch returned empty payload', { targetId, source });
-                return null;
-            }
-
-            processFn(payload, {
-                imageId: targetId,
-                assetId: assetId || null,
-                videoId: videoId || null,
-                source
-            });
-
-            const afterPrompt = this.stateManager?.getState?.()?.generation?.lastPrompt || null;
-            if (afterPrompt && afterPrompt !== beforePrompt) {
-                return afterPrompt;
-            }
-
-            return null;
-        } catch (error) {
-            console.error('[GVP][Interceptor] Prompt fallback via /rest/media/post/get failed:', error);
-            return null;
-        }
-    }
 
     _parseStreamLine(line) {
         if (!line) return null;
@@ -2849,9 +2909,10 @@ window.NetworkInterceptor = class NetworkInterceptor {
             }
 
             if (char === '"') {
-                inString = true;
+                inString = !inString;
                 continue;
             }
+
 
             if (char === '{') {
                 if (depth === 0) {
@@ -2892,7 +2953,7 @@ window.NetworkInterceptor = class NetworkInterceptor {
         let wasModerated = false;
         let moderationReason = null;
         let progressReached100 = false;
-        let progress100MissingPrompt = false;
+
         const progressValues = [];
         let modelName = null;
         let mode = null;
@@ -2926,52 +2987,113 @@ window.NetworkInterceptor = class NetworkInterceptor {
                 payload?.streamingVideoGenerationResponse ||
                 payload?.result?.streamingVideoGenerationResponse;
 
-            if (!videoResponse) continue;
+            const imageResponse = payload?.result?.response?.streamingImageGenerationResponse ||
+                payload?.streamingImageGenerationResponse ||
+                payload?.result?.streamingImageGenerationResponse;
 
-            if (!modelName && videoResponse.modelName) {
-                modelName = videoResponse.modelName;
+            const titleResponse = payload?.result?.title;
+            if (titleResponse && titleResponse.newTitle) {
+                // If title comes back, we can capture it
+                if (!context.newTitle) context.newTitle = titleResponse.newTitle;
             }
 
-            if (videoResponse.mode) {
-                mode = videoResponse.mode;
+            const modelResponse = payload?.result?.response?.modelResponse;
+            if (modelResponse && modelResponse.fileAttachments) {
+                // For either image or video, extract the final UUID payload if available
+                if (!context.fileAttachments) context.fileAttachments = modelResponse.fileAttachments;
+                if (!context.generatedImageUrls && modelResponse.generatedImageUrls) {
+                    context.generatedImageUrls = modelResponse.generatedImageUrls;
+                }
             }
 
-            if (videoResponse.imageReference) {
-                imageReference = videoResponse.imageReference;
+            const activeGenResponse = videoResponse || imageResponse;
+            if (!activeGenResponse) continue;
+
+            if (imageResponse && !context.attemptType) {
+                context.attemptType = 'image_edit';
             }
 
-            if (videoResponse.videoId) {
+            if (!modelName && activeGenResponse.modelName) {
+                modelName = activeGenResponse.modelName;
+            }
+
+            if (activeGenResponse.mode) {
+                mode = activeGenResponse.mode;
+            }
+
+            if (activeGenResponse.imageReference) {
+                imageReference = activeGenResponse.imageReference;
+            }
+
+            if (videoResponse?.videoId) {
                 videoId = videoResponse.videoId;
             }
 
-            const progressRaw = videoResponse.progress ??
-                videoResponse.progressValue ??
-                videoResponse.progressPercent ??
-                videoResponse.progress_percentage ??
-                videoResponse.percentage ??
-                videoResponse.percent ??
-                (typeof videoResponse.status === 'object' ? videoResponse.status?.progress : null);
+            // NEW METADATA EXTRACTION (GVP v1.61)
+            if (activeGenResponse.isRootCelebrity !== undefined) context.isRootCelebrity = activeGenResponse.isRootCelebrity;
+            if (activeGenResponse.isRootChild !== undefined) context.isRootChild = activeGenResponse.isRootChild;
+            if (activeGenResponse.isRootRRated !== undefined) context.isRootRRated = activeGenResponse.isRootRRated;
+            if (activeGenResponse.isRootUserUploaded !== undefined) context.isRootUserUploaded = activeGenResponse.isRootUserUploaded;
+            if (activeGenResponse.isVideoExtension !== undefined) context.isVideoExtension = activeGenResponse.isVideoExtension;
+            if (activeGenResponse.rRated !== undefined) context.rRated = activeGenResponse.rRated;
+            if (activeGenResponse.imageModel) context.imageModel = activeGenResponse.imageModel;
+            if (activeGenResponse.imageReferences) context.imageReferences = activeGenResponse.imageReferences;
+            if (activeGenResponse.resolvedImageReferences) context.imageReferences = activeGenResponse.resolvedImageReferences;
+            if (activeGenResponse.fileAttachments) context.fileAttachments = activeGenResponse.fileAttachments;
+            if (activeGenResponse.generatedImageUrls) context.generatedImageUrls = activeGenResponse.generatedImageUrls;
+
+            const progressRaw = activeGenResponse.progress ??
+                activeGenResponse.progressValue ??
+                activeGenResponse.progressPercent ??
+                activeGenResponse.progress_percentage ??
+                activeGenResponse.percentage ??
+                activeGenResponse.percent ??
+                (typeof activeGenResponse.status === 'object' ? activeGenResponse.status?.progress : null);
             const normalizedProgress = this._coerceProgressValue(progressRaw);
 
             if (normalizedProgress !== null) {
                 progressValues.push(normalizedProgress);
-                console.log(`[GVP] 📊 Progress: ${normalizedProgress}%`);
+                window.Logger?.debug('NetworkInterceptor', `📊 Progress: ${normalizedProgress}%`);
 
-                // Dispatch beacon for progress updates (Bridge context)
-                this._dispatchVidGenBeacon({
-                    videoId: videoId || videoResponse.videoId || assetId,
-                    imageId: resolvedImageId || parentPostId,
-                    parentPostId: parentPostId || videoResponse.parentPostId,
+                const isTerminal = normalizedProgress >= 100 || wasModerated || !!activeGenResponse.moderated;
+
+                if (isTerminal) {
+                    // ENHANCED: Resolve image ID early for beacon
+                    const currentResolvedImageId = this._resolveImageId({
+                        parentPostId: parentPostId || activeGenResponse.parentPostId,
+                        imageReference: imageReference || activeGenResponse.imageReference,
+                        messageUrl: userMessageUrl
+                    });
+
+                    // Dispatch terminal beacon (Bridge context)
+                    this._dispatchVidGenBeacon({
+                    videoId: videoId || videoResponse?.videoId || assetId,
+                    imageId: currentResolvedImageId || parentPostId,
+                    parentPostId: parentPostId || activeGenResponse.parentPostId,
                     progress: normalizedProgress,
-                    moderated: wasModerated || !!videoResponse.moderated,
-                    thumbnailUrl: videoResponse.thumbnailUrl,
-                    videoUrl: videoResponse.videoUrl || null
+                    moderated: wasModerated || !!activeGenResponse.moderated,
+                    thumbnailUrl: activeGenResponse.thumbnailUrl || imageResponse?.imageUrl,
+                    videoUrl: videoResponse?.videoUrl || null,
+                    fileAttachments: context.fileAttachments || null,
+                    generatedImageUrls: context.generatedImageUrls || null,
+                    newTitle: context.newTitle || null,
+                    attemptType: context.attemptType || 'video',
+                    isRootCelebrity: context.isRootCelebrity,
+                    isRootChild: context.isRootChild,
+                    isRootRRated: context.isRootRRated,
+                    isRootUserUploaded: context.isRootUserUploaded,
+                    isVideoExtension: context.isVideoExtension,
+                    rRated: context.rRated,
+                    imageModel: context.imageModel,
+                    imageReferences: context.imageReferences || null,
+                    imageReference: imageReference || activeGenResponse.imageReference || null
                 });
+                }
             }
 
-            const { videoPrompt } = videoResponse;
+            const videoPrompt = activeGenResponse.videoPrompt || activeGenResponse.prompt;
 
-            if (videoResponse.moderated === true) {
+            if (activeGenResponse.moderated === true) {
                 wasModerated = true;
                 if (!moderationReason) {
                     moderationReason = 'Content flagged by moderation system';
@@ -2980,26 +3102,22 @@ window.NetworkInterceptor = class NetworkInterceptor {
 
             if (normalizedProgress !== null && normalizedProgress >= 100) {
                 progressReached100 = true;
-                console.log('[GVP] ✅ Progress 100 reached!');
+                window.Logger?.info('NetworkInterceptor', '✅ Progress 100 reached!');
 
-                if (videoResponse.videoUrl) {
-                    videoUrl = videoResponse.videoUrl;
-                    console.log('[GVP] 🎬 Found videoUrl:', videoUrl.substring(0, 50) + '...');
+                if (activeGenResponse.videoUrl || imageResponse?.imageUrl) {
+                    videoUrl = videoResponse?.videoUrl || imageResponse?.imageUrl;
+                    window.Logger?.info('NetworkInterceptor', '🎬 Found media URL:', { url: videoUrl.substring(0, 50) + '...' });
                     if (!accountId) {
                         accountId = this._extractAccountIdFromVideoUrl(videoUrl);
                     }
                 }
-                if (videoResponse.assetId) {
-                    assetId = videoResponse.assetId;
-                    console.log('[GVP] 📦 Found assetId:', assetId);
+                
+                if (activeGenResponse.assetId || imageResponse?.imageId) {
+                    assetId = activeGenResponse.assetId || imageResponse?.imageId;
                 }
 
-                if (typeof videoPrompt === 'string' && videoPrompt.trim()) {
-                    finalVideoPrompt = videoPrompt;
-                    console.log('[GVP] 📝 Found videoPrompt! Length:', videoPrompt.length);
-                } else {
-                    progress100MissingPrompt = true;
-                    console.log('[GVP] ⚠️ Progress 100 but videoPrompt empty or missing');
+                if (typeof finalVideoPrompt === 'string' && finalVideoPrompt.trim()) {
+                    window.Logger?.info('NetworkInterceptor', '📝 Found videoPrompt!', { length: finalVideoPrompt.length });
                 }
             }
         }
@@ -3041,74 +3159,38 @@ window.NetworkInterceptor = class NetworkInterceptor {
             }
         }
 
-        if (!finalVideoPrompt && progressReached100 && resolvedImageId) {
-            let shouldAttemptFallback = true;
-            let metaRecord = null;
-
-            if (videoId) {
-                metaRecord = this._bridgeMetadataByVideoId.get(videoId) || {};
-                if (metaRecord.fallbackCompleted) {
-                    shouldAttemptFallback = false;
-                } else if (metaRecord.fallbackInFlight) {
-                    shouldAttemptFallback = false;
-                } else {
-                    metaRecord.fallbackInFlight = true;
-                    this._bridgeMetadataByVideoId.set(videoId, metaRecord);
-                }
-            }
-
-            if (shouldAttemptFallback) {
-                /* Temporarily disabling /rest/media/post/get fallback fetch.
-               Grok no longer serves the JSON prompt there and this path now generates 404 noise.
-               When the backend resumes supporting it, remove this guard and re-enable. */
-                const fallbackPrompt = null;
-
-                const trimmedFallback = typeof fallbackPrompt === 'string' ? fallbackPrompt.trim() : '';
-
-                if (trimmedFallback) {
-                    finalVideoPrompt = trimmedFallback;
-                    progress100MissingPrompt = false;
-
-                    if (videoId) {
-                        metaRecord = this._bridgeMetadataByVideoId.get(videoId) || metaRecord || {};
-                        metaRecord.videoPrompt = trimmedFallback;
-                        metaRecord.fallbackCompleted = true;
-                        metaRecord.fallbackInFlight = false;
-                        this._bridgeMetadataByVideoId.set(videoId, metaRecord);
-                    }
-
-                    console.log('[GVP][Interceptor] ✅ Prompt fallback succeeded via /rest/media/post/get');
-                } else if (videoId) {
-                    metaRecord = this._bridgeMetadataByVideoId.get(videoId) || metaRecord || {};
-                    metaRecord.fallbackInFlight = false;
-                    this._bridgeMetadataByVideoId.set(videoId, metaRecord);
-                }
-            }
-        }
+        // Hallucinated prompt fallback mechanism removed
 
         if (finalVideoPrompt) {
-            console.log('[GVP] ? videoPrompt captured from response. Length:', finalVideoPrompt.length);
-            console.log('[GVP] videoPrompt preview:', finalVideoPrompt.substring(0, 300) + '...');
+            window.Logger?.info('NetworkInterceptor', '📝 capturing videoPrompt from response', { length: finalVideoPrompt.length });
 
             const trimmedFinal = typeof finalVideoPrompt === 'string' ? finalVideoPrompt.trim() : '';
             const looksLikeJson = trimmedFinal.startsWith('{') || trimmedFinal.startsWith('[');
             await this._parseAndSetPromptData(finalVideoPrompt);
 
-            // if (looksLikeJson) {
-            const stateAccountId = this.stateManager?.getState()?.account?.id || null;
+            // Use the standard account extractor to guarantee isolation
+            const activeAccountId = this.stateManager?.getActiveMultiGenAccount?.() || null;
             const historyManager = window.gvpImageProjectManager;
+
             if (historyManager) {
-                let historyAccountId = accountId || stateAccountId || null;
+                // Determine the correct account partition for this generation
+                let historyAccountId = accountId || activeAccountId || null;
+
+                // Fallback to ImageProjectManager's own context if totally lost
                 if (!historyAccountId && typeof historyManager.ensureActiveContext === 'function') {
                     const ctx = historyManager.ensureActiveContext();
                     if (ctx?.accountId) {
                         historyAccountId = ctx.accountId;
                     }
                 }
+
                 const activeHistoryAccount = historyAccountId || 'account:unknown';
+
                 if (resolvedImageId) {
                     try {
+                        // Crucial: Set the active partition before recording to prevent leaks
                         historyManager.setActiveAccount(activeHistoryAccount);
+
                         historyManager.registerImageProject(
                             activeHistoryAccount,
                             resolvedImageId,
@@ -3138,6 +3220,19 @@ window.NetworkInterceptor = class NetworkInterceptor {
                                 }
                             }
                         );
+
+                        // Dispatch beacon for gallery backfill if generation was successful and has a video
+                        if (!wasModerated && videoUrl && resolvedImageId) {
+                            window.dispatchEvent(new CustomEvent('gvp:vidgen-beacon', {
+                                detail: {
+                                    imageId: resolvedImageId,
+                                    videoUrl: videoUrl,
+                                    status: 'COMPLETED',
+                                    progress: 100,
+                                    source: 'gallery-backfill'
+                                }
+                            }));
+                        }
                     } catch (historyError) {
                         console.error('[GVP] ❌ Failed to record prompt history:', historyError);
                     }
@@ -3152,14 +3247,30 @@ window.NetworkInterceptor = class NetworkInterceptor {
             }
             // }
 
-        } else if (progress100MissingPrompt) {
-            console.info(`[GVP] Progress reached 100 in ${source} but no JSON prompt was provided (Moderated=${wasModerated}).`);
         } else if (!progressValues.length) {
             console.log('[GVP] No streaming video responses found in payloads');
         }
 
-        const state = this.stateManager.getState();
-        const currentGenId = state.generation.currentGenerationId;
+        const state = this.stateManager?.getState?.();
+        if (!state) return;
+        // Fallback to singleton currentGenerationId if no specific requestId is provided by bridge
+        const currentGenId = context.requestId || state.generation.currentGenerationId;
+
+        // v1.60.1: Implicit moderation detection — if progress reached 100 but BOTH
+        // videoPrompt and videoUrl are missing, the generation was silently moderated.
+        // Grok's API often removes content without setting moderated=true explicitly.
+        // v1.60.2 Regression Fix: Bridge payloads often have partial data; avoid false triggers.
+        const isBridgeSource = context.source === 'bridge-progress' || 
+                             context.source === 'bridge-video-prompt' || 
+                             context.source === 'bridge-progress-synthetic';
+
+        if (progressReached100 && !finalVideoPrompt && !videoUrl && !wasModerated && !isBridgeSource) {
+            wasModerated = true;
+            moderationReason = moderationReason || 'Implicit moderation: progress 100 with no prompt or video URL';
+            window.Logger?.warn('NetworkInterceptor', '🚫 Implicit moderation detected: progress=100, no prompt, no videoUrl');
+            // Fire the moderation event that was missed above
+            await this._handleModerationEvent(moderationReason);
+        }
 
         if (currentGenId) {
             const newStatus = wasModerated ? 'moderated'
@@ -3175,12 +3286,13 @@ window.NetworkInterceptor = class NetworkInterceptor {
                 mode: mode || null,
                 imageId: resolvedImageId || null,
                 accountId: accountId || null,
-                videoId: videoId || null
+                videoId: videoId || null,
+                progress: progressValues.length ? progressValues[progressValues.length - 1] : undefined
             });
 
-            if (!wasModerated && finalVideoPrompt && videoUrl) {
+            if (!wasModerated && (finalVideoPrompt || context.attemptType === 'image_edit') && videoUrl) {
                 this.stateManager.completeGeneration(currentGenId, {
-                    videoUrl,
+                    videoUrl, // serves as imageUrl for image_edit due to mapping at 3081
                     assetId
                 });
 
@@ -3256,15 +3368,21 @@ window.NetworkInterceptor = class NetworkInterceptor {
     }
 
     async _handleModerationEvent(reason) {
-        const state = this.stateManager.getState();
+        const state = this.stateManager?.getState?.();
+        if (!state) return;
         const currentGenId = state.generation.currentGenerationId;
 
         if (!currentGenId) {
-            console.warn('[GVP] Moderation detected but no active generation');
+            // Downgrade to debug: This usually happens for native Grok generations not triggered by GVP
+            window.Logger?.debug('NetworkInterceptor', '[GVP] Moderation detected but no active GVP generation');
             return;
         }
 
-        const moderationData = state.generation.moderationData;
+        const moderationData = state.generation.moderationData || {
+            retryCount: 0,
+            retryHistory: []
+        };
+        state.generation.moderationData = moderationData;
         const settings = state.settings;
 
         moderationData.isModerated = true;
@@ -3280,7 +3398,7 @@ window.NetworkInterceptor = class NetworkInterceptor {
             success: false
         });
 
-        console.log(`[GVP] Moderation event recorded (attempt ${moderationData.retryCount})`);
+        window.Logger?.info('NetworkInterceptor', `[GVP] Moderation event recorded (attempt ${moderationData.retryCount})`, { reason });
 
         if (window.gvpUIManager) {
             if (typeof window.gvpUIManager.updateRetryStatistics === 'function') {
@@ -3304,6 +3422,41 @@ window.NetworkInterceptor = class NetworkInterceptor {
 
         if (settings.autoRetryOnModeration) {
             console.log('[GVP] 🔁 Auto-retry is deprecated and removed.');
+        }
+    }
+
+    async handleBridgeError(payload = {}) {
+        if (!payload.status || !payload.url) return;
+        const state = this.stateManager?.getState?.();
+        if (!state) return;
+
+        window.Logger?.error('NetworkInterceptor', `[GVP] Bridge reported HTTP error ${payload.status} for ${payload.url}`);
+
+        if (payload.status === 429) {
+            const currentGenId = state.generation.currentGenerationId;
+            if (currentGenId) {
+                window.Logger?.warn('NetworkInterceptor', '🚨 Quota Exhausted! Received 429 from Grok backend.');
+
+                // Immediately stop the VideoQueueManager
+                if (window.gvpUIManager && window.gvpUIManager.multiVideoManager) {
+                    window.gvpUIManager.multiVideoManager.stopQueue();
+                }
+
+                this.stateManager.updateGeneration(currentGenId, {
+                    status: 'failed',
+                    isRefused: true,
+                    moderationReason: 'Quota Exhausted (429)'
+                });
+
+                if (window.gvpUIManager) {
+                    window.gvpUIManager.updateGenerationStatus('failed', {
+                        reason: 'Quota Exhausted (429)',
+                        generationId: currentGenId
+                    });
+                }
+            } else {
+                 window.Logger?.warn('NetworkInterceptor', '429 Quota Error received but no active generation found.');
+            }
         }
     }
 
@@ -3358,9 +3511,9 @@ window.NetworkInterceptor = class NetworkInterceptor {
                 try {
                     const parsed = JSON.parse(rawText);
                     if (multiGenMeta) {
-                        await this._handleMultiGenStreamPayload(parsed, multiGenMeta);
+                        this._handleMultiGenStreamPayload(parsed, multiGenMeta);
                     }
-                    await this._processPayloadEvents([parsed], { source: 'bridge-progress' });
+                    await this._processPayloadEvents([parsed], { source: 'bridge-progress', requestId });
                     processed = true;
                 } catch (error) {
                     console.debug('[GVP][Interceptor] Failed to parse bridge progress payload raw JSON:', error);
@@ -3376,6 +3529,7 @@ window.NetworkInterceptor = class NetworkInterceptor {
                         streamingVideoGenerationResponse: {
                             progress: progressValue,
                             videoId: payload.videoId,
+                            imageId: payload?.imageId || payload?.parentPostId || meta.imageReference || null,
                             moderated: payload?.moderated === true,
                             mode: payload?.mode || meta.mode || null,
                             modelName: payload?.modelName || meta.modelName || null,
@@ -3387,9 +3541,9 @@ window.NetworkInterceptor = class NetworkInterceptor {
 
             try {
                 if (multiGenMeta) {
-                    await this._handleMultiGenStreamPayload(syntheticPayload, multiGenMeta);
+                    this._handleMultiGenStreamPayload(syntheticPayload, multiGenMeta);
                 }
-                await this._processPayloadEvents([syntheticPayload], { source: 'bridge-progress-synthetic' });
+                await this._processPayloadEvents([syntheticPayload], { source: 'bridge-progress-synthetic', requestId });
                 processed = true;
             } catch (error) {
                 console.debug('[GVP][Interceptor] Failed to process synthetic bridge progress payload:', error, syntheticPayload);
@@ -3443,7 +3597,7 @@ window.NetworkInterceptor = class NetworkInterceptor {
                     if (multiGenMeta) {
                         await this._handleMultiGenStreamPayload(parsed, multiGenMeta);
                     }
-                    await this._processPayloadEvents([parsed], { source: 'bridge-video-prompt' });
+                    await this._processPayloadEvents([parsed], { source: 'bridge-video-prompt', requestId });
                     processed = true;
                 } catch (error) {
                     console.debug('[GVP][Interceptor] Failed to parse bridge video prompt raw JSON:', error);
@@ -3471,6 +3625,7 @@ window.NetworkInterceptor = class NetworkInterceptor {
                             assetId: payload?.assetId || meta.assetId || null,
                             moderated: payload?.moderated === true,
                             videoId: payload.videoId,
+                            imageId: payload?.imageId || payload?.parentPostId || meta.imageReference || null,
                             mode: payload?.mode || meta.mode || null,
                             modelName: payload?.modelName || meta.modelName || null,
                             imageReference: payload?.imageReference || meta.imageReference || null
@@ -3481,9 +3636,9 @@ window.NetworkInterceptor = class NetworkInterceptor {
 
             try {
                 if (multiGenMeta) {
-                    await this._handleMultiGenStreamPayload(syntheticPayload, multiGenMeta);
+                    this._handleMultiGenStreamPayload(syntheticPayload, multiGenMeta);
                 }
-                await this._processPayloadEvents([syntheticPayload], { source: 'bridge-video-prompt-synthetic' });
+                await this._processPayloadEvents([syntheticPayload], { source: 'bridge-video-prompt-synthetic', requestId });
                 processed = true;
             } catch (error) {
                 console.debug('[GVP][Interceptor] Failed to process synthetic bridge video prompt payload:', error, syntheticPayload);
@@ -3534,20 +3689,20 @@ window.NetworkInterceptor = class NetworkInterceptor {
 
     _parseAndSetPromptData(videoPromptString) {
         if (!videoPromptString || typeof videoPromptString !== 'string') {
-            console.warn('[GVP] Ignoring empty or non-string videoPrompt');
             return;
         }
 
         const trimmed = videoPromptString.trim();
-        const looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('[');
-
-        if (!looksLikeJson) {
-            console.warn('[GVP] Non-JSON videoPrompt received; skipping editor population.');
+        // Robust check for JSON-like structure
+        if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+            // Probably just a plain string/Image ID, ignore
             return;
         }
 
         try {
-            JSON.parse(trimmed);
+            // Guard against large or invalid strings that might still fail
+            const parsed = JSON.parse(trimmed);
+            if (!parsed || typeof parsed !== 'object') return;
 
             if (window.stateManager) {
                 window.stateManager.updatePromptDataFromVideoPrompt(trimmed);
@@ -3560,17 +3715,22 @@ window.NetworkInterceptor = class NetworkInterceptor {
             console.log('[GVP] ✅ Parsed and set prompt data');
 
         } catch (error) {
-            console.error('[GVP] Failed to parse videoPrompt JSON:', error);
+            // Suppress error logs for non-JSON strings to keep console clean
+            if (trimmed.length < 50) {
+                // Short non-JSON strings are common (IDs, links)
+                return;
+            }
+            console.error('[GVP] Failed to parse videoPrompt JSON (length:', trimmed.length, '):', error.message);
         }
     }
 
     async _processJsonResponse(response, source = 'json') {
         try {
-            console.log('[GVP] _processJsonResponse called');
+            window.Logger?.info('NetworkInterceptor', '[GVP] _processJsonResponse called');
             const jsonData = await response.json();
             await this._processPayloadEvents([jsonData], { source });
         } catch (error) {
-            console.error('[GVP] Error processing JSON response:', error);
+            window.Logger?.debug('NetworkInterceptor', '[GVP] Error processing JSON response:', error);
         }
     }
 
@@ -3598,7 +3758,13 @@ window.NetworkInterceptor = class NetworkInterceptor {
             progress: data.progress ?? 0,
             moderated: !!data.moderated,
             thumbnailUrl: data.thumbnailUrl || null,
-            videoUrl: data.videoUrl || null
+            videoUrl: data.videoUrl || null,
+            
+            // v1.61.0 Adv Metadata 
+            fileAttachments: data.fileAttachments || null,
+            generatedImageUrls: data.generatedImageUrls || null,
+            newTitle: data.newTitle || null,
+            attemptType: data.attemptType || 'video'
         };
 
         if (window.Logger) {
@@ -3616,56 +3782,160 @@ window.NetworkInterceptor = class NetworkInterceptor {
             return false;
         }
 
-        console.log(`[GVP][Interceptor] 🔄 Triggering Bulk Sync for account: ${accountId}`);
+        const sentinelEnabled = this.stateManager?.state?.settings?.sentinelSyncEnabled !== false;
+        const apiBatchSize = this.stateManager?.state?.settings?.galleryBatchSize || limit;
+
+        console.log(`[GVP][Interceptor] 🔄 Triggering Bulk Sync for account: ${accountId} (Sentinel: ${sentinelEnabled})`);
 
         try {
-            // MUST use originalFetch to prevent double-processing in the interceptor loop
             const fetchFn = this.originalFetch || window.fetch;
+            let sourceEnum = 'MEDIA_POST_SOURCE_LIKED';
 
-            // Map standard source string to Grok's enum
-            let sourceEnum = 'MEDIA_POST_SOURCE_LIKED'; // fallback
-            if (source === 'favorites') {
-                sourceEnum = 'MEDIA_POST_SOURCE_LIKED';
-            } else if (source === 'gallery' || source === 'all') {
+            if (source === 'favorites' || source === 'liked' || source === 'saved' || source === 'gallery' || source === 'all' || source === 'account-switch' || source === 'startup-pulse') {
                 sourceEnum = 'MEDIA_POST_SOURCE_LIKED';
             }
 
-            const response = await fetchFn('https://grok.com/rest/media/post/list', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json' // Omit trace headers added by browser
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    limit: limit,
+            // --- PLAN B: SENTINEL CHECK ---
+            if (sentinelEnabled && (source === 'startup-pulse' || source === 'account-switch')) {
+                try {
+                    // Ensure we have the latest IndexedDBManager reference
+                    const idb = this.stateManager?.indexedDBManager || window.gvpIDB;
+                    const lastSyncAt = await idb?.getSyncStatus(accountId);
+
+                    if (lastSyncAt) {
+                        console.log(`[GVP][Interceptor] 🔎 Sentinel Check: Last sync was ${new Date(lastSyncAt).toISOString()}. Checking Grok API...`);
+
+                        const localTopId = await idb?.getLatestUnifiedId();
+
+                        // GVP (v1.46.13): Add abort controller for reliability
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+                        const pulseResponse = await fetchFn('https://grok.com/rest/media/post/list', {
+                            method: 'POST',
+                            signal: controller.signal,
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify({ limit: 1, filter: { source: sourceEnum } })
+                        });
+
+                        clearTimeout(timeoutId);
+
+                        if (pulseResponse.ok) {
+                            const pulseData = await pulseResponse.json();
+                            const apiTopId = pulseData.items?.[0]?.id || pulseData.posts?.[0]?.id;
+
+                            if (apiTopId === localTopId) {
+                                console.log('[GVP][Interceptor] ✨ SENTINEL MATCH! Local history is up-to-date. Bypassing bulk sync.');
+
+                                // Trigger lazy hydration of local history for UI components
+                                if (this.stateManager?.loadUnifiedHistoryPaged) {
+                                    this.stateManager.loadUnifiedHistoryPaged(25, 0).catch(console.error);
+                                }
+
+                                return true;
+                            }
+                            console.log(`[GVP][Interceptor] 🔄 Sentinel mismatch (${apiTopId} vs ${localTopId}). Proceeding with sync.`);
+                        }
+                    } else {
+                        console.log('[GVP][Interceptor] 🔄 No local history found. Proceeding with full sync.');
+                    }
+                } catch (sentinelError) {
+                    if (sentinelError.name === 'AbortError') {
+                        console.warn('[GVP][Interceptor] ⏱️ Sentinel check timed out.');
+                    } else {
+                        console.warn('[GVP][Interceptor] ⚠️ Sentinel check failed:', sentinelError);
+                    }
+                }
+            }
+
+            let currentCursor = null;
+            let hasMore = true;
+            let totalFetched = 0;
+            let pageCount = 0;
+            const MAX_PAGES = 100; // Safety limit: up to 10,000 items
+
+            const globalSyncStartTime = Date.now();
+            const SYNC_BUDGET_MS = 30000; // 30s total budget
+
+            while (hasMore && pageCount < MAX_PAGES) {
+                // v1.47.7: Global budget check
+                if (Date.now() - globalSyncStartTime > SYNC_BUDGET_MS) {
+                    window.Logger.warn('NetworkInterceptor', `⏱️ Bulk sync reached 30s budget at page ${pageCount}. Terminating.`);
+                    break;
+                }
+
+                pageCount++;
+                const requestBody = {
+                    limit: apiBatchSize,
                     filter: {
                         source: sourceEnum
                     }
-                })
-            });
+                };
 
-            if (!response.ok) {
-                throw new Error(`Bulk sync API HTTP Error: ${response.status}`);
+                if (currentCursor) {
+                    requestBody.cursor = currentCursor;
+                }
+
+                try {
+                    // GVP (v1.46.13): Add abort controller for each batch
+                    const batchController = new AbortController();
+                    const batchTimeoutId = setTimeout(() => batchController.abort(), 15000);
+
+                    const response = await fetchFn('https://grok.com/rest/media/post/list', {
+                        method: 'POST',
+                        signal: batchController.signal,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify(requestBody)
+                    });
+
+                    clearTimeout(batchTimeoutId);
+
+                    if (!response.ok) {
+                        throw new Error(`Bulk sync API HTTP Error at page ${pageCount}: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    const posts = data.items || data.posts || [];
+
+                    // Get next cursor
+                    currentCursor = data.cursor || data.nextCursor || null;
+                    hasMore = !!currentCursor && posts.length > 0;
+
+                    if (posts.length > 0) {
+                        totalFetched += posts.length;
+                        console.log(`[GVP][Interceptor] 📥 Page ${pageCount}: Fetched ${posts.length} items (Total: ${totalFetched})`);
+                        await this._ingestListToUnified(posts, accountId);
+                    } else {
+                        hasMore = false;
+                    }
+
+                    if (hasMore) {
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                    }
+                } catch (batchError) {
+                    if (batchError.name === 'AbortError') {
+                        console.error(`[GVP][Interceptor] ❌ Bulk sync timed out at page ${pageCount}`);
+                    } else {
+                        console.error(`[GVP][Interceptor] ❌ Bulk sync error at page ${pageCount}:`, batchError);
+                    }
+                    // Terminate loop on fatal/timeout to avoid hanging the init process
+                    break;
+                }
             }
 
-            const data = await response.json();
-            const posts = data.items || data.posts || [];
-
-            console.log(`[GVP][Interceptor] 📥 Bulk Sync fetched ${posts.length} items. Processing...`);
-
-            if (posts.length > 0) {
-                await this._ingestListToUnified(posts);
-                console.log('[GVP][Interceptor] ✅ Bulk Sync ingestion completed successfully.');
-                return true;
-            } else {
-                console.log('[GVP][Interceptor] ⚠️ Bulk Sync returned no items.');
-                return false;
-            }
+            console.log(`[GVP][Interceptor] ✅ Exhaustive Bulk Sync completed. Total items: ${totalFetched}`);
+            return { success: true, count: totalFetched };
 
         } catch (error) {
             console.error('[GVP][Interceptor] ❌ Bulk Sync failed:', error);
-            return false;
+            return { success: false, error: error.message };
         }
+
     }
 };
+

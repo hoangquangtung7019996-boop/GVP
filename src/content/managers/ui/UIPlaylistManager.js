@@ -51,41 +51,66 @@ window.UIPlaylistManager = class UIPlaylistManager {
         // Late-init reactivity: Re-build playlist if IDB becomes ready
         this._boundHandleLateInit = () => {
             window.Logger.info('UIPlaylist', '📥 Late IDB init detected, refreshing playlist...');
-            const accountId = this.stateManager?.state?.multiGenHistory?.activeAccountId;
-            if (accountId) {
-                this.playlist = this.buildPlaylistFromApi({});
-                if (this.playerModal && this.playerModal.parentElement) {
-                    window.Logger.info('UIPlaylist', 'Playlist modal open, rebuilding list items');
-                    this.currentIndex = Math.min(this.currentIndex, Math.max(0, this.playlist.length - 1));
-                    this._updatePlayerUI();
-                    this._renderPlaylist({ preserveScroll: true });
-                } else {
-                    this.currentIndex = 0;
-                }
-            }
+            this.refreshPlaylist();
         };
         window.addEventListener('gvp:idb-late-init', this._boundHandleLateInit);
 
-        // React to real-time successful video generations
+        // React to real-time video generation terminal states (success or moderated)
         this._boundHandleVidGenBeacon = (e) => {
             const detail = e?.detail || {};
-            // If beacon reports a 100% finished video that isn't moderated
-            if (detail.progress === 100 && detail.moderated === false && detail.videoUrl) {
-                window.Logger.info('UIPlaylist', '🎬 Real-time video completion detected, refreshing playlist...');
-                const accountId = this.stateManager?.state?.multiGenHistory?.activeAccountId;
-                if (accountId) {
-                    this.playlist = this.buildPlaylistFromApi({});
-                    if (this.playerModal && this.playerModal.parentElement) {
-                        window.Logger.info('UIPlaylist', 'Playlist modal open, rebuilding list items');
-                        // Update current item UI just in case
-                        this._updatePlayerUI();
-                        // Re-render the side list to show the new video while keeping scroll position
-                        this._renderPlaylist({ preserveScroll: true });
-                    }
-                }
+            // Refresh on any terminal state: 100% success OR moderated
+            const isTerminal = detail.progress >= 100 || detail.moderated === true;
+            if (isTerminal) {
+                window.Logger.info('UIPlaylist', '🔄 Terminal beacon received — refreshing playlist...', {
+                    progress: detail.progress,
+                    moderated: detail.moderated,
+                    videoId: detail.videoId
+                });
+                this.refreshPlaylist();
             }
         };
         window.addEventListener('gvp:vidgen-beacon', this._boundHandleVidGenBeacon);
+
+        // v1.60: Handle general UVH updates (sync, bulk ingest, or single generation completion)
+        this._boundHandleUvhUpdated = (e) => {
+            window.Logger.info('UIPlaylist', '🔄 UVH Update detected, refreshing playlist...', e?.detail);
+            this.refreshPlaylist();
+        };
+        window.addEventListener('gvp:uvh-updated', this._boundHandleUvhUpdated);
+    }
+
+    /**
+     * Refresh the playlist while preserving the currently selected video
+     */
+    refreshPlaylist() {
+        const accountId = this.stateManager?.getActiveMultiGenAccount?.();
+        if (!accountId) return;
+
+        // Capture current video ID (buildPlaylistFromApi uses .id as .videoId)
+        const currentId = this.playlist[this.currentIndex]?.id || this.playlist[this.currentIndex]?.videoId;
+
+        // Rebuild the playlist but preserve the array reference
+        const newList = this.buildPlaylistFromApi({});
+
+        // Update playlist in-place to preserve references
+        this.playlist.splice(0, this.playlist.length, ...newList);
+
+        // Update allVideos master list to match
+        this.allVideos = [...this.playlist];
+
+        // Restore selection
+        if (currentId) {
+            const newIndex = this.playlist.findIndex(v => v.id === currentId || v.videoId === currentId);
+            this.currentIndex = newIndex !== -1 ? newIndex : 0;
+        } else {
+            this.currentIndex = 0;
+        }
+
+        if (this.playerModal && this.playerModal.parentElement) {
+            window.Logger.info('UIPlaylist', 'Playlist refreshed — rebuilding player UI and list');
+            this._updatePlayerUI();
+            this._renderPlaylist({ preserveScroll: true });
+        }
     }
 
     /**
@@ -210,6 +235,9 @@ window.UIPlaylistManager = class UIPlaylistManager {
         if (filters.mode) {
             videos = videos.filter(v => v.mode === filters.mode);
         }
+        if (filters.modelName) {
+            videos = videos.filter(v => v.modelName === filters.modelName);
+        }
 
         window.Logger.debug('Playlist', '📊 Retrieved', videos.length, 'unified videos (filtered)');
 
@@ -312,7 +340,13 @@ window.UIPlaylistManager = class UIPlaylistManager {
                 const accountId = this.stateManager?.state?.multiGenHistory?.activeAccountId;
                 window.Logger.debug('Playlist', '🔍 Trying unified history for playlist...', { accountId });
 
-                if (this.stateManager?.loadUnifiedHistory && accountId) {
+                if (!accountId) {
+                    window.Logger.warn('Playlist', '⚠️ No active account ID found, aborting favorites load.');
+                    this.uiModalManager?.showError('Account ID missing. Please ensure your session is active.');
+                    return;
+                }
+
+                if (this.stateManager?.loadUnifiedHistory) {
                     try {
                         await this.stateManager.loadUnifiedHistory(accountId);
                     } catch (err) {
@@ -320,36 +354,8 @@ window.UIPlaylistManager = class UIPlaylistManager {
                     }
                 }
 
-                const unifiedVideos = this.stateManager?.getAllUnifiedVideos?.(accountId, { sortBy: 'newest' }) || [];
-                window.Logger.debug('Playlist', '📦 Unified history returned', unifiedVideos.length, 'videos');
-
-                videos = unifiedVideos
-                    .filter(video => !!video?.videoUrl) // skip entries with no playable URL
-                    .filter(video => video?.moderated !== true && video?.status !== 'moderated')
-                    .map(video => ({
-                        videoUrl: video.videoUrl,
-                        mediaUrl: video.videoUrl,
-                        videoId: video.id,
-                        virtualId: video.virtualId, // Crucial for Upscale/Delete operations
-                        imageId: video.parentImageId,
-                        imageUrl: video.parentImageThumbnail || video.parentThumbnailUrl || video.parentImageUrl,
-                        thumbnailUrl: video.thumbnailUrl || video.parentImageThumbnail || video.parentThumbnailUrl || video.parentImageUrl,
-                        parentImageUrl: video.parentImageThumbnail || video.parentThumbnailUrl || video.parentImageUrl,
-                        parentThumbnailUrl: video.parentImageThumbnail || video.parentThumbnailUrl || video.parentImageUrl,
-                        prompt: video.videoPrompt || video.parentImagePrompt || 'No prompt',
-                        originalPrompt: video.videoPrompt,
-                        timestamp: video.timestamp,
-                        createTime: video.timestamp,
-                        mode: video.mode || 'normal',
-                        resolution: video.resolution,
-                        modelName: video.modelName,
-                        assetId: video.id,
-                        isApiSource: true,
-                        isApiSource: true,
-                        liked: video.liked || false,
-                        parentPost: null,
-                        upscaledVideoUrl: video.upscaledVideoUrl || null
-                    }));
+                videos = this.buildPlaylistFromApi({});
+                window.Logger.debug('Playlist', '📦 Unified playlist built with', videos.length, 'videos');
             }
 
             // Cap to avoid overwhelming UI with massive histories
@@ -1378,9 +1384,44 @@ window.UIPlaylistManager = class UIPlaylistManager {
             }
         });
 
-        this.videoElement.addEventListener('error', (e) => {
+        this.videoElement.addEventListener('error', async (e) => {
+            const video = this.playlist[this.currentIndex];
             this._consecutiveErrors++;
-            window.Logger.error('Playlist', 'Video error:', e, `(${this._consecutiveErrors}/${this._maxConsecutiveErrors})`);
+            window.Logger.error('Playlist', 'Video error:', e, `(${this._consecutiveErrors}/${this._maxConsecutiveErrors})`, video?.videoUrl);
+
+            // Scrubber: If this is a 403 Forbidden, it's likely a cross-account leak or deleted asset
+            if (video && video.videoUrl && video.imageId) {
+                try {
+                    // Probe the URL to confirm it's a 403
+                    const response = await fetch(video.videoUrl, { method: 'HEAD' }).catch(() => null);
+                    if (response && response.status === 403) {
+                        window.Logger.error('Playlist', '🛑 403 Forbidden detected. Purging ghost entry:', video.imageId);
+
+                        // Purge from DB and StateManager
+                        await this.stateManager.deleteUnifiedEntry(video.imageId);
+
+                        // Remove from local playlist and reset counter to trigger refresh/skip
+                        this.playlist.splice(this.currentIndex, 1);
+                        this.allVideos = this.allVideos.filter(v => v.imageId !== video.imageId);
+
+                        // Reset consecutive errors since we successfully "handled" it by purging
+                        this._consecutiveErrors = 0;
+
+                        // Try to play the next one (which is now at the same index)
+                        setTimeout(() => {
+                            if (this.playlist.length > 0) {
+                                this._loadVideo(this.currentIndex);
+                            } else {
+                                this._hidePlayer();
+                                this.uiModalManager?.showNotification?.('Ghost videos purged. Playlist is now empty.', { type: 'success' });
+                            }
+                        }, 500);
+                        return;
+                    }
+                } catch (fetchErr) {
+                    window.Logger.warn('Playlist', 'Failed to probe video URL for status code:', fetchErr);
+                }
+            }
 
             // v1.21.23: Error throttling to prevent infinite loop
             if (this._consecutiveErrors >= this._maxConsecutiveErrors) {
@@ -1909,15 +1950,21 @@ window.UIPlaylistManager = class UIPlaylistManager {
         const [sortBy, order] = sortMode.split('-');
         this.activeSort = sortMode || this.activeSort || 'date-desc';
 
-        if (sortMode === 'random') {
+        if (sortMode === 'random' || sortBy === 'shuffled') {
             this._shufflePlaylist();
-        } else if (sortBy === 'date') {
+        } else if (sortBy === 'date' || sortBy === 'latest' || sortBy === 'legacy') {
+            const actualOrder = (sortBy === 'legacy') ? 'asc' : (order || 'desc');
             this.playlist.sort((a, b) => {
-                const dateA = new Date(a.createTime || 0).getTime();
-                const dateB = new Date(b.createTime || 0).getTime();
-                return order === 'desc' ? dateB - dateA : dateA - dateB;
+                const dateA = new Date(a.createTime || a.createdAt || 0).getTime();
+                const dateB = new Date(b.createTime || b.createdAt || 0).getTime();
+                return actualOrder === 'desc' ? dateB - dateA : dateA - dateB;
             });
-        } else if (sortBy === 'videos') {
+        } else if (sortBy === 'bookends') {
+            // Use StateManager's logic by refreshing from source
+            const accountId = this.stateManager.getActiveMultiGenAccount() || this.stateManager.state.activeAccountId;
+            this.playlist = this.stateManager.getAllUnifiedVideos(accountId, { sortBy: 'bookends' });
+            this.allVideos = this.playlist; // CRITICAL: Keep sync
+        } else if (sortBy === 'videos' || sortBy === 'prolific') {
             // Count videos per parent image
             const videoCounts = new Map();
             this.playlist.forEach(v => {
@@ -1928,7 +1975,7 @@ window.UIPlaylistManager = class UIPlaylistManager {
             this.playlist.sort((a, b) => {
                 const countA = videoCounts.get(a.parentImageId || a.imageId) || 0;
                 const countB = videoCounts.get(b.parentImageId || b.imageId) || 0;
-                return order === 'desc' ? countB - countA : countA - countB;
+                return order === 'asc' ? countA - countB : countB - countA;
             });
         }
 
@@ -1945,52 +1992,11 @@ window.UIPlaylistManager = class UIPlaylistManager {
      */
     _filterByModel(model) {
         if (model === 'all') {
-            // Rebuild full playlist from StateManager
-            this.playlist = this.stateManager.getAllVideosFromGallery().map(video => ({
-                videoUrl: video.mediaUrl,
-                mediaUrl: video.mediaUrl,
-                videoId: video.id,
-                imageId: video.parentImageId,
-                imageUrl: video.parentImageUrl || video.parentPost?.imageUrl,
-                thumbnailUrl: video.parentThumbnailUrl || video.parentPost?.thumbnailUrl || video.parentImageUrl,
-                parentImageUrl: video.parentImageUrl,
-                parentThumbnailUrl: video.parentThumbnailUrl,
-                prompt: video.originalPrompt || video.parentPrompt || 'No prompt',
-                originalPrompt: video.originalPrompt,
-                timestamp: video.createTime,
-                createTime: video.createTime,
-                mode: video.mode || 'normal',
-                resolution: video.resolution,
-                modelName: video.modelName,
-                assetId: video.id,
-                isApiSource: true,
-                liked: video.parentPost?.userInteractionStatus?.likeStatus || false,
-                parentPost: video.parentPost
-            }));
+            // Rebuild full playlist from Unified History
+            this.playlist = this.buildPlaylistFromApi({});
         } else {
-            // Filter by specific model
-            const allVideos = this.stateManager.getAllVideosFromGallery();
-            this.playlist = allVideos.filter(v => v.modelName === model).map(video => ({
-                videoUrl: video.mediaUrl,
-                mediaUrl: video.mediaUrl,
-                videoId: video.id,
-                imageId: video.parentImageId,
-                imageUrl: video.parentImageUrl || video.parentPost?.imageUrl,
-                thumbnailUrl: video.parentThumbnailUrl || video.parentPost?.thumbnailUrl || video.parentImageUrl,
-                parentImageUrl: video.parentImageUrl,
-                parentThumbnailUrl: video.parentThumbnailUrl,
-                prompt: video.originalPrompt || video.parentPrompt || 'No prompt',
-                originalPrompt: video.originalPrompt,
-                timestamp: video.createTime,
-                createTime: video.createTime,
-                mode: video.mode || 'normal',
-                resolution: video.resolution,
-                modelName: video.modelName,
-                assetId: video.id,
-                isApiSource: true,
-                liked: video.parentPost?.userInteractionStatus?.likeStatus || false,
-                parentPost: video.parentPost
-            }));
+            // Filter by specific model using Unified History
+            this.playlist = this.buildPlaylistFromApi({ modelName: model });
         }
 
         window.Logger.info('Playlist', 'Filtered by model:', model, '- Videos:', this.playlist.length);
@@ -2014,7 +2020,7 @@ window.UIPlaylistManager = class UIPlaylistManager {
 
         if (!promptToUse) {
             window.Logger.warn('Playlist', 'No prompt available for generation');
-            alert('No prompt available for this video!');
+            this.uiModalManager?.showToast?.('No prompt available for this video!', 'warning');
             return;
         }
 
@@ -2024,7 +2030,7 @@ window.UIPlaylistManager = class UIPlaylistManager {
         if (!this.reactAutomation) {
             window.Logger.warn('Playlist', 'ReactAutomation not available, copying to clipboard');
             navigator.clipboard.writeText(promptToUse).then(() => {
-                alert(`ReactAutomation unavailable.\n\nPrompt copied to clipboard!\nPaste manually into the generator.`);
+                this.uiModalManager?.showToast?.('Automation unavailable. Prompt copied to clipboard!', 'info');
             });
             return;
         }
@@ -2051,7 +2057,7 @@ window.UIPlaylistManager = class UIPlaylistManager {
             }
         } catch (error) {
             window.Logger.error('Playlist', 'Generation failed:', error);
-            alert(`Generation failed: ${error.message}\n\nTry copying manually.`);
+            this.uiModalManager?.showToast?.(`Generation failed: ${error.message}`, 'error');
 
             // Fallback to clipboard
             navigator.clipboard.writeText(promptToUse).then(() => {
