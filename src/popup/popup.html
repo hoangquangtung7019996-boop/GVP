@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <title>Grok Video Prompter</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+  <div id="popup-root">
+    <div class="header-title">Grok Video Prompter <span class="version">v1.20</span></div>
+    <div class="popup-content">
+      <div class="status-section">
+        <p id="status-text" class="status-text">✓ Extension loaded</p>
+      </div>
+      <div class="button-group">
+        <button id="open-ui" class="btn btn-primary">Open Prompter</button>
+        <button id="open-settings" class="btn btn-secondary">Settings</button>
+      </div>
+      <div class="info-section">
+        <p class="info-text">The prompter will appear as a floating button on grok.com</p>
+      </div>
+    </div>
+  </div>
+  <script src="../content/utils/Logger.js"></script>
+  <script src="popup.js"></script>
+</body>
+
+</html>
